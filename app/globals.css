@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 31, 41, 55; /* gray-800 */
+  --background-start-rgb: 255, 255, 255; /* white */
+  --background-end-rgb: 249, 250, 251; /* gray-50 */
+  
+  /* Nantika Brand Colors */
+  --brand-green: #10b981;
+  --brand-green-dark: #059669;
+  --brand-blue: #3b82f6;
+  --brand-blue-dark: #2563eb;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-start-rgb));
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  /* Brand color utilities */
+  .bg-brand-green {
+    background-color: var(--brand-green);
+  }
+  
+  .bg-brand-green-dark {
+    background-color: var(--brand-green-dark);
+  }
+  
+  .text-brand-green {
+    color: var(--brand-green);
+  }
+  
+  .border-brand-green {
+    border-color: var(--brand-green);
+  }
+}
+
