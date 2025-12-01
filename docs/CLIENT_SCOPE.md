@@ -74,11 +74,13 @@
 
 #### **2.6 Analytics Tabs**
 
-- On the Daily Matrix screen there are extra tabs:
+- On the Daily Matrix screen there are extra tabs that give the manager a **clear view of shop revenue and therapist performance**:
   - **Service Chart**:
     - Pie chart and table showing how many of each service type were done and their revenue.
+    - Helps answer questions like “Which services are most popular and most profitable today?”.
   - **Therapist Revenue**:
     - Pie chart and table showing how much each therapist generated, including therapist commission vs. store share.
+    - Allows the manager to quickly see **who is driving revenue**, how much each therapist should be paid, and how much the shop keeps.
 
 ---
 
