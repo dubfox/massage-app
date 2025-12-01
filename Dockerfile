@@ -6,18 +6,10 @@ FROM base AS deps
 
 RUN apk add --no-cache libc6-compat
 
-# Copy lockfiles if present (npm, yarn, pnpm)
-COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* .npmrc* ./ 2>/dev/null || true
+# Copy package manifest and lock file (npm-based install)
+COPY package.json package-lock.json ./ 
 
-RUN if [ -f package-lock.json ]; then \
-      npm ci; \
-    elif [ -f yarn.lock ]; then \
-      yarn install --frozen-lockfile; \
-    elif [ -f pnpm-lock.yaml ]; then \
-      npm install -g pnpm && pnpm install --frozen-lockfile; \
-    else \
-      npm install; \
-    fi
+RUN npm ci
 
 # --- Build layer ---
 FROM base AS builder
