@@ -170,6 +170,7 @@
 
 - Fair and transparent **round-robin** assignment of services.
 - Clear view of **who can perform which services** (green/red matrix cells and skill chips).
+- Built-in **Therapist Revenue chart and statistics** so the manager can easily track who is generating revenue, how much each therapist should be paid, and how much the shop keeps.
 - Easy **clock-in/clock-out** for therapists and manager overrides.
 - **Live display** for customers and staff without showing any payment details.
 - Foundation ready for future expansion (more reports, real data from backend, etc.).
