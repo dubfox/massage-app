@@ -33,6 +33,15 @@ echo "(host:${HOST_PORT} -> container:${CONTAINER_PORT})"
 # Stop any existing container with this name
 docker stop "${IMAGE_NAME}" >/dev/null 2>&1 || true
 
+# Check if port is already in use by another container
+PORT_CONFLICT=$(docker ps --format "{{.Names}}" --filter "publish=${HOST_PORT}" 2>/dev/null || true)
+if [ -n "$PORT_CONFLICT" ]; then
+  echo "Warning: Port ${HOST_PORT} is already in use by container(s): ${PORT_CONFLICT}"
+  echo "Stopping conflicting container(s)..."
+  echo "$PORT_CONFLICT" | xargs -r docker stop >/dev/null 2>&1 || true
+  sleep 1
+fi
+
 docker run -d --rm -p "${HOST_PORT}:${CONTAINER_PORT}" --name "${IMAGE_NAME}" "${IMAGE_NAME}"
 
 echo
