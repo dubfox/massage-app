@@ -114,7 +114,8 @@ export default function TherapistManagement() {
 
       {/* Main Content */}
       <div className="p-4">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        {/* Desktop / Tablet: Table View */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-100">
@@ -224,6 +225,139 @@ export default function TherapistManagement() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Mobile: Card View */}
+        <div className="space-y-4 md:hidden">
+          {therapists.map((therapist) => {
+            const isClockedIn = loggedInTherapists.includes(therapist.name)
+            const certifiedNames =
+              therapist.certifiedServices && therapist.certifiedServices.length > 0
+                ? therapist.certifiedServices
+                    .map(id => availableServices.find(s => s.id === id)?.name)
+                    .filter(Boolean)
+                : []
+
+            return (
+              <div
+                key={therapist.id}
+                className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-3"
+              >
+                {/* Header: Name, phone, status */}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-base font-bold text-gray-900">
+                      {therapist.name}
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      {therapist.phone}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Joined: {new Date(therapist.joinDate).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <button
+                      onClick={() => toggleStatus(therapist.id)}
+                      className={`px-3 py-1 rounded-full text-[11px] font-semibold ${
+                        therapist.status === 'active'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      {therapist.status === 'active' ? t('common.active') : t('common.inactive')}
+                    </button>
+                    <div className="text-xs text-gray-600">
+                      {therapist.commissionRate || 0}% commission
+                    </div>
+                  </div>
+                </div>
+
+                {/* Clock status */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    {isClockedIn ? (
+                      <>
+                        <div className="w-2 h-2 bg-brand-green-500 rounded-full animate-pulse" />
+                        <span className="font-semibold text-brand-green-700">Clocked In</span>
+                      </>
+                    ) : (
+                      <span className="text-gray-500">Not clocked in</span>
+                    )}
+                  </div>
+                  <div>
+                    {isClockedIn ? (
+                      <button
+                        onClick={() => handleCheckOut(therapist.name)}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-[11px] font-semibold transition-colors"
+                      >
+                        <LogOut className="w-3 h-3" />
+                        Check Out
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleCheckIn(therapist.name)}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-brand-green-100 hover:bg-brand-green-200 text-brand-green-700 rounded-lg text-[11px] font-semibold transition-colors"
+                      >
+                        <LogIn className="w-3 h-3" />
+                        Check In
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Certified services */}
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-700 mb-1">
+                    Certified Services
+                  </div>
+                  {certifiedNames.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {certifiedNames.map((name) => (
+                        <span
+                          key={name}
+                          className="px-2 py-0.5 rounded-full bg-brand-green-50 text-brand-green-800 border border-brand-green-200 text-[10px] font-semibold"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-gray-500">
+                      No services assigned. Therapist will not appear for service selection.
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => handleEdit(therapist)}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    <Edit className="w-3 h-3" />
+                    Edit
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/manager/therapists/${therapist.id}/shifts`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-700"
+                    >
+                      <Calendar className="w-3 h-3" />
+                      Shifts
+                    </Link>
+                    <Link
+                      href={`/manager/therapists/${therapist.id}/payout`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-purple-600 hover:text-purple-700"
+                    >
+                      <DollarSign className="w-3 h-3" />
+                      Payout
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 

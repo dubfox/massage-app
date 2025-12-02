@@ -183,13 +183,13 @@ export default function AddEntryModal({
         <div className="p-4 space-y-4 overflow-y-auto">
           {/* Service - Now First */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
+            <label className="block text-base font-semibold text-gray-700 mb-2">
               Service:
             </label>
             <select
               value={service}
               onChange={(e) => handleServiceChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+              className="w-full px-4 py-3 text-base md:text-lg border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-brand-green-300 focus:border-brand-green-500 text-gray-900"
             >
               {services.map((s) => (
                 <option key={s} value={s}>
@@ -206,7 +206,7 @@ export default function AddEntryModal({
 
           {/* Therapist - Auto-selected based on service */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
+            <label className="block text-base font-semibold text-gray-700 mb-2">
               Therapist: {timeSlot === 'auto' && (
                 <span className="text-xs text-brand-green-600 font-normal ml-2">
                   (Round-robin: {getNextTherapist() || therapist})
@@ -217,7 +217,7 @@ export default function AddEntryModal({
               value={therapist}
               onChange={(e) => handleTherapistChange(e.target.value)}
               disabled={timeSlot === 'auto' || availableTherapists.length === 0}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 ${
+              className={`w-full px-4 py-3 text-base md:text-lg border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-brand-green-300 focus:border-brand-green-500 text-gray-900 ${
                 timeSlot === 'auto' || availableTherapists.length === 0 ? 'bg-gray-100 cursor-not-allowed' : ''
               }`}
             >

@@ -501,6 +501,74 @@ export default function ManagerDailyMatrix() {
     '#84cc16', // lime
   ]
 
+  const RADIAN = Math.PI / 180
+
+  // Whether there is at least one therapist currently available in the queue
+  const hasAvailableTherapists = therapistQueue.length > 0
+
+  // Custom label renderers to keep labels inside pie slices (better for mobile)
+  const renderServicePieLabel = (props: any) => {
+    const {
+      cx,
+      cy,
+      midAngle,
+      innerRadius,
+      outerRadius,
+      percent,
+      name,
+    } = props
+
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5
+    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+    const pct = (percent * 100).toFixed(0)
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="#ffffff"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={10}
+        fontWeight={600}
+      >
+        {`${name} ${pct}%`}
+      </text>
+    )
+  }
+
+  const renderTherapistPieLabel = (props: any) => {
+    const {
+      cx,
+      cy,
+      midAngle,
+      innerRadius,
+      outerRadius,
+      percent,
+      name,
+    } = props
+
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5
+    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+    const pct = (percent * 100).toFixed(0)
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="#ffffff"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={10}
+        fontWeight={600}
+      >
+        {`${name} ${pct}%`}
+      </text>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -520,8 +588,18 @@ export default function ManagerDailyMatrix() {
           <div className="flex items-center gap-3">
             <LanguagePicker />
             <button
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 bg-brand-green-500 hover:bg-brand-green-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors shadow-md"
+              onClick={() => hasAvailableTherapists && setIsModalOpen(true)}
+              disabled={!hasAvailableTherapists}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors shadow-md ${
+                hasAvailableTherapists
+                  ? 'bg-brand-green-500 hover:bg-brand-green-600 text-white cursor-pointer'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+              }`}
+              title={
+                hasAvailableTherapists
+                  ? t('manager.addEntry')
+                  : 'No therapists are currently clocked in and available'
+              }
             >
               <Plus className="w-5 h-5" />
               {t('manager.addEntry')}
@@ -583,6 +661,22 @@ export default function ManagerDailyMatrix() {
             </span>
           </div>
         )}
+
+        {/* Info banner when no therapists are available */}
+        {!hasAvailableTherapists && (
+          <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
+            <div className="mt-0.5 h-2 w-2 rounded-full bg-yellow-500" />
+            <div className="text-xs text-yellow-900">
+              <div className="font-semibold mb-1">
+                No therapists are currently clocked in and available.
+              </div>
+              <div>
+                Ask therapists to <span className="font-semibold">Clock In</span> from the kiosk or use the{' '}
+                <span className="font-semibold">Check In</span> buttons in Therapist Management before adding entries.
+              </div>
+            </div>
+          </div>
+        )}
         {getRoundsWithEntries().map((round) => {
           const hasEntriesInRound = serviceEntries.some(e => e.round === round)
           
@@ -595,7 +689,8 @@ export default function ManagerDailyMatrix() {
                 </h2>
               </div>
               
-              <div className="overflow-x-auto">
+              {/* Desktop / Tablet: Ledger Table */}
+              <div className="overflow-x-auto hidden md:block">
                 <table className="w-full min-w-[800px]">
                   <thead className="bg-gray-100">
                     <tr>
@@ -754,6 +849,120 @@ export default function ManagerDailyMatrix() {
                   </tfoot>
                 </table>
               </div>
+
+              {/* Mobile: Per-Therapist Cards */}
+              <div className="block md:hidden p-4 space-y-4">
+                {therapistQueue.length > 0 ? (
+                  therapistQueue.map((therapist, queuePosition) => {
+                    const isNextInQueue = queuePosition === nextTherapistIndex
+                    const therapistInfo = therapistsData.find(t => t.name === therapist)
+
+                    // Active (in-progress) services for this therapist and round
+                    const activeEntriesForTherapist = serviceEntries.filter(
+                      (e: ServiceEntry) =>
+                        e.therapist === therapist &&
+                        e.round === round &&
+                        !e.endTime
+                    )
+
+                    // Build per-service info for this therapist and round
+                    const servicesForTherapist = serviceNames.map((serviceName) => {
+                      const serviceInfo = availableServices.find(s => s.name === serviceName)
+                      const isCertified = serviceInfo && therapistInfo?.certifiedServices?.includes(serviceInfo.id)
+                      const cellContent = getCellContent(therapist, serviceName, round)
+                      return {
+                        name: serviceName,
+                        isCertified,
+                        hasEntry: cellContent !== '—',
+                        display: cellContent,
+                      }
+                    })
+
+                    return (
+                      <div
+                        key={`${therapist}-card-round-${round}`}
+                        className={`rounded-xl border p-4 space-y-3 ${
+                          isNextInQueue ? 'border-brand-green-500 bg-brand-green-50' : 'border-gray-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-gray-900">{therapist}</span>
+                              {isNextInQueue && (
+                                <span className="text-[10px] font-semibold text-brand-green-700 bg-brand-green-100 px-2 py-0.5 rounded-full">
+                                  Next
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-600 mt-1">
+                              Queue position: #{queuePosition + 1}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Check-in: {checkInTimes[therapist] || '—'}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Service assignment time: {getAssignmentTime(therapist, round)}
+                            </div>
+                          </div>
+                          <div className="text-right text-sm font-bold text-gray-800">
+                            {getTherapistRoundTotal(therapist, round).toLocaleString()} THB
+                          </div>
+                        </div>
+
+                        {/* Current service in progress, if any */}
+                        {activeEntriesForTherapist.length > 0 && (
+                          <div className="mt-2 rounded-lg bg-orange-50 border border-orange-200 px-3 py-2 text-[11px]">
+                            <div className="font-semibold text-orange-700 mb-1">
+                              Current Service
+                            </div>
+                            {activeEntriesForTherapist.map((entry) => {
+                              const serviceName = entry.service.split(' ')[0] || 'Service'
+                              return (
+                                <div key={entry.id} className="flex flex-col">
+                                  <span className="font-semibold text-gray-800">
+                                    {serviceName} {entry.price.toLocaleString()} THB
+                                  </span>
+                                  <span className="text-[10px] text-orange-700">
+                                    In Progress • Start: {entry.time}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* Services grid */}
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          {servicesForTherapist.map((svc) => (
+                            <div
+                              key={svc.name}
+                              className={`rounded-lg px-2 py-2 text-[11px] leading-tight border ${
+                                svc.isCertified
+                                  ? 'bg-brand-green-50 text-brand-green-800 border-brand-green-200'
+                                  : 'bg-red-50 text-red-500 border-red-200 opacity-80'
+                              }`}
+                            >
+                              <div className="font-semibold">{svc.name}</div>
+                              {svc.isCertified ? (
+                                <div className="mt-1">
+                                  {svc.hasEntry ? svc.display : '—'}
+                                </div>
+                              ) : (
+                                <div className="mt-1">Not allowed</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="py-6 text-center text-gray-500 text-sm">
+                    No therapists are currently logged in. Therapists must log in to be included in the queue.
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
@@ -792,11 +1001,7 @@ export default function ManagerDailyMatrix() {
                         cx="50%"
                         cy="50%"
                         labelLine={false}
-                        label={(entry: any) => {
-                          const name = entry.name || ''
-                          const percent = entry.percent || 0
-                          return `${name}: ${(percent * 100).toFixed(0)}%`
-                        }}
+                        label={renderServicePieLabel}
                         outerRadius={120}
                         fill="#8884d8"
                         dataKey="value"
@@ -813,12 +1018,14 @@ export default function ManagerDailyMatrix() {
                   </ResponsiveContainer>
                 </div>
 
-                {/* Service Statistics Table */}
+                {/* Service Statistics Table / Cards */}
                 <div className="mt-8">
                   <h3 className="text-lg font-semibold text-gray-800 mb-4">
                     Service Statistics
                   </h3>
-                  <div className="overflow-x-auto">
+
+                  {/* Desktop / Tablet: Table */}
+                  <div className="overflow-x-auto hidden md:block">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
@@ -894,6 +1101,53 @@ export default function ManagerDailyMatrix() {
                       </tfoot>
                     </table>
                   </div>
+
+                  {/* Mobile: Card View */}
+                  <div className="md:hidden space-y-3">
+                    {getServiceDistribution.map((service, index) => {
+                      const percentage = (service.value / getShopTotal()) * 100
+                      const avgPrice = service.count > 0 ? service.value / service.count : 0
+                      return (
+                        <div
+                          key={service.name}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded"
+                              style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-gray-900">
+                                {service.name}
+                              </span>
+                              <span className="text-[11px] text-gray-500">
+                                {service.count} sessions • {percentage.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-bold text-gray-900">
+                              {service.value.toLocaleString()} THB
+                            </div>
+                            <div className="text-[11px] text-gray-500">
+                              Avg {avgPrice.toLocaleString()} THB
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {/* Mobile total summary */}
+                    <div className="mt-2 rounded-lg bg-brand-green-50 border border-brand-green-200 px-3 py-2 text-[11px] flex justify-between">
+                      <span className="font-semibold text-gray-800">
+                        Total sessions: {getServiceDistribution.reduce((sum, s) => sum + s.count, 0)}
+                      </span>
+                      <span className="font-bold text-brand-green-700">
+                        {getShopTotal().toLocaleString()} THB
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -929,11 +1183,7 @@ export default function ManagerDailyMatrix() {
                         cx="50%"
                         cy="50%"
                         labelLine={false}
-                        label={(entry: any) => {
-                          const name = entry.name || ''
-                          const percent = entry.percent || 0
-                          return `${name}: ${(percent * 100).toFixed(0)}%`
-                        }}
+                        label={renderTherapistPieLabel}
                         outerRadius={120}
                         fill="#8884d8"
                         dataKey="value"
@@ -955,7 +1205,9 @@ export default function ManagerDailyMatrix() {
                   <h3 className="text-lg font-semibold text-gray-800 mb-4">
                     Therapist Revenue Statistics
                   </h3>
-                  <div className="overflow-x-auto">
+
+                  {/* Desktop / Tablet: Table */}
+                  <div className="overflow-x-auto hidden md:block">
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
@@ -1053,6 +1305,64 @@ export default function ManagerDailyMatrix() {
                         </tr>
                       </tfoot>
                     </table>
+                  </div>
+
+                  {/* Mobile: Card View */}
+                  <div className="md:hidden space-y-3">
+                    {getTherapistRevenue.map((therapist, index) => {
+                      const percentage = (therapist.value / getShopTotal()) * 100
+                      const avgPrice = therapist.count > 0 ? therapist.value / therapist.count : 0
+                      return (
+                        <div
+                          key={therapist.name}
+                          className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm flex flex-col gap-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-3 h-3 rounded"
+                                style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-xs font-semibold text-gray-900">
+                                  {therapist.name}
+                                </span>
+                                <span className="text-[10px] text-gray-500">
+                                  {therapist.commissionRate}% commission
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right text-xs font-bold text-gray-900">
+                              {therapist.value.toLocaleString()} THB
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-gray-600">
+                            <span>
+                              {therapist.count} sessions • {percentage.toFixed(1)}%
+                            </span>
+                            <span>Avg {avgPrice.toLocaleString()} THB</span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-brand-green-700 font-semibold">
+                              Therapist: {therapist.commission.toLocaleString()} THB
+                            </span>
+                            <span className="text-brand-blue-700 font-semibold">
+                              Store: {therapist.storeRevenue.toLocaleString()} THB
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {/* Mobile total summary */}
+                    <div className="mt-2 rounded-lg bg-brand-green-50 border border-brand-green-200 px-3 py-2 text-[11px] flex justify-between">
+                      <span className="font-semibold text-gray-800">
+                        Total sessions: {getTherapistRevenue.reduce((sum, t) => sum + t.count, 0)}
+                      </span>
+                      <span className="font-bold text-brand-green-700">
+                        {getShopTotal().toLocaleString()} THB
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
