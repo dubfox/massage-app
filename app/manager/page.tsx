@@ -66,6 +66,7 @@ export default function ManagerDailyMatrix() {
   // Track the current queue order of therapists (only logged-in ones)
   const [therapistQueue, setTherapistQueue] = useState<string[]>([])
   const [now, setNow] = useState<Date | null>(null)
+  const [showGuide, setShowGuide] = useState(false)
 
   // Start live clock for current time display (client-only)
   useEffect(() => {
@@ -588,6 +589,12 @@ export default function ManagerDailyMatrix() {
           <div className="flex items-center gap-3">
             <LanguagePicker />
             <button
+              onClick={() => setShowGuide((prev) => !prev)}
+              className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              {showGuide ? 'Hide Guide' : 'Show Guide'}
+            </button>
+            <button
               onClick={() => hasAvailableTherapists && setIsModalOpen(true)}
               disabled={!hasAvailableTherapists}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors shadow-md ${
@@ -650,6 +657,31 @@ export default function ManagerDailyMatrix() {
       {/* Tab Content */}
       {activeTab === 'assignment' && (
         <div className="p-4 space-y-6">
+        {/* Simple guide for managers */}
+        {showGuide && (
+          <div className="bg-white border border-brand-blue-200 rounded-lg p-4 shadow-sm text-xs md:text-sm space-y-2">
+            <div className="font-semibold text-brand-blue-800 mb-1">
+              How to use this screen (Service Assignment)
+            </div>
+            <ul className="list-disc list-inside space-y-1 text-gray-700">
+              <li>
+                <span className="font-semibold">1. Make sure therapists are clocked in</span> – Therapists use the kiosk to Clock In, or you can Check In from the Therapist Management screen.
+              </li>
+              <li>
+                <span className="font-semibold">2. Click “Add Entry”</span> – Choose the service and the system will automatically select the next available, certified therapist.
+              </li>
+              <li>
+                <span className="font-semibold">3. Green cells</span> show services a therapist can perform; <span className="font-semibold">red cells</span> mean they cannot perform that service.
+              </li>
+              <li>
+                <span className="font-semibold">4. End Service</span> when a session is finished so the therapist becomes available in the queue again.
+              </li>
+              <li>
+                <span className="font-semibold">5. Each “Round”</span> shows one full cycle where every therapist has received a service before the next round starts.
+              </li>
+            </ul>
+          </div>
+        )}
         {/* Current Time Banner for Round Entry View */}
         {now && (
           <div className="flex items-center justify-between bg-brand-blue-50 border border-brand-blue-200 rounded-lg px-4 py-2">
@@ -989,7 +1021,18 @@ export default function ManagerDailyMatrix() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">
               Services Performed - Daily Overview
             </h2>
-            
+
+            {showGuide && (
+              <div className="mb-4 bg-white border border-brand-blue-200 rounded-lg p-3 shadow-sm text-xs md:text-sm">
+                <div className="font-semibold text-brand-blue-800 mb-1">
+                  How to read this chart
+                </div>
+                <p className="text-gray-700">
+                  The pie chart shows the share of revenue per service. Cards/tables below list how many sessions,
+                  total revenue, average price, and percentage of the day each service represents.
+                </p>
+              </div>
+            )}
             {getServiceDistribution.length > 0 ? (
               <div className="space-y-6">
                 {/* Pie Chart */}
@@ -1171,7 +1214,18 @@ export default function ManagerDailyMatrix() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">
               Therapist Revenue - Daily Overview
             </h2>
-            
+
+            {showGuide && (
+              <div className="mb-4 bg-white border border-brand-blue-200 rounded-lg p-3 shadow-sm text-xs md:text-sm">
+                <div className="font-semibold text-brand-blue-800 mb-1">
+                  How to read this chart
+                </div>
+                <p className="text-gray-700">
+                  Each therapist&apos;s slice shows their share of today&apos;s revenue. Cards/tables below show sessions,
+                  total revenue, therapist commission, store share, and average per session so you can quickly compare performance.
+                </p>
+              </div>
+            )}
             {getTherapistRevenue.length > 0 ? (
               <div className="space-y-6">
                 {/* Pie Chart */}
