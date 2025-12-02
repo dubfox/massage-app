@@ -592,7 +592,7 @@ export default function ManagerDailyMatrix() {
               onClick={() => setShowGuide((prev) => !prev)}
               className="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
             >
-              {showGuide ? 'Hide Guide' : 'Show Guide'}
+              {showGuide ? t('guide.manager.toggle.hide') : t('guide.manager.toggle.show')}
             </button>
             <button
               onClick={() => hasAvailableTherapists && setIsModalOpen(true)}
@@ -661,23 +661,23 @@ export default function ManagerDailyMatrix() {
         {showGuide && (
           <div className="bg-white border border-brand-blue-200 rounded-lg p-4 shadow-sm text-xs md:text-sm space-y-2">
             <div className="font-semibold text-brand-blue-800 mb-1">
-              How to use this screen (Service Assignment)
+              {t('guide.manager.assignment.title')}
             </div>
             <ul className="list-disc list-inside space-y-1 text-gray-700">
               <li>
-                <span className="font-semibold">1. Make sure therapists are clocked in</span> – Therapists use the kiosk to Clock In, or you can Check In from the Therapist Management screen.
+                {t('guide.manager.assignment.step1')}
               </li>
               <li>
-                <span className="font-semibold">2. Click “Add Entry”</span> – Choose the service and the system will automatically select the next available, certified therapist.
+                {t('guide.manager.assignment.step2')}
               </li>
               <li>
-                <span className="font-semibold">3. Green cells</span> show services a therapist can perform; <span className="font-semibold">red cells</span> mean they cannot perform that service.
+                {t('guide.manager.assignment.step3')}
               </li>
               <li>
-                <span className="font-semibold">4. End Service</span> when a session is finished so the therapist becomes available in the queue again.
+                {t('guide.manager.assignment.step4')}
               </li>
               <li>
-                <span className="font-semibold">5. Each “Round”</span> shows one full cycle where every therapist has received a service before the next round starts.
+                {t('guide.manager.assignment.step5')}
               </li>
             </ul>
           </div>
@@ -1025,11 +1025,10 @@ export default function ManagerDailyMatrix() {
             {showGuide && (
               <div className="mb-4 bg-white border border-brand-blue-200 rounded-lg p-3 shadow-sm text-xs md:text-sm">
                 <div className="font-semibold text-brand-blue-800 mb-1">
-                  How to read this chart
+                  {t('guide.manager.chart.title')}
                 </div>
                 <p className="text-gray-700">
-                  The pie chart shows the share of revenue per service. Cards/tables below list how many sessions,
-                  total revenue, average price, and percentage of the day each service represents.
+                  {t('guide.manager.chart.text')}
                 </p>
               </div>
             )}
@@ -1218,11 +1217,10 @@ export default function ManagerDailyMatrix() {
             {showGuide && (
               <div className="mb-4 bg-white border border-brand-blue-200 rounded-lg p-3 shadow-sm text-xs md:text-sm">
                 <div className="font-semibold text-brand-blue-800 mb-1">
-                  How to read this chart
+                  {t('guide.manager.therapistChart.title')}
                 </div>
                 <p className="text-gray-700">
-                  Each therapist&apos;s slice shows their share of today&apos;s revenue. Cards/tables below show sessions,
-                  total revenue, therapist commission, store share, and average per session so you can quickly compare performance.
+                  {t('guide.manager.therapistChart.text')}
                 </p>
               </div>
             )}

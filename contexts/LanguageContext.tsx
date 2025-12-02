@@ -140,6 +140,36 @@ const translations: Record<Language, Record<string, string>> = {
     'service.allCategories': 'All Categories',
     'service.noServices': 'No services found',
     'service.create': 'Create',
+
+    // Guides - Landing
+    'guide.landing.title': 'How to use this system',
+    'guide.landing.toggle.show': 'Show Guide',
+    'guide.landing.toggle.hide': 'Hide Guide',
+    'guide.landing.manager.title': 'For Manager',
+    'guide.landing.manager.step1': 'Go to Manager Interface.',
+    'guide.landing.manager.step2': 'Check therapists in or out from Therapist Management so the queue is correct.',
+    'guide.landing.manager.step3': 'Use the Daily Matrix to add services; the system will choose the next available, certified therapist.',
+    'guide.landing.manager.step4': 'Click End Service when a session is finished so therapists re-enter the queue.',
+    'guide.landing.manager.step5': 'Use the Service Chart and Therapist Revenue tabs to review daily performance and revenue.',
+    'guide.landing.therapist.title': 'For Therapist',
+    'guide.landing.therapist.step1': 'Go to Therapist Interface to Clock In and join the queue.',
+    'guide.landing.therapist.step2': 'When leaving or taking a break, use Clock Out / Check Out so the queue stays accurate.',
+    'guide.landing.therapist.step3': 'You can close the screen with Close Screen (Stay Clocked In) and remain in the queue.',
+    'guide.landing.therapist.step4': 'Use View Daily Summary to see your sessions and totals for the day.',
+
+    // Guides - Manager Daily Matrix
+    'guide.manager.toggle.show': 'Show Guide',
+    'guide.manager.toggle.hide': 'Hide Guide',
+    'guide.manager.assignment.title': 'How to use this screen (Service Assignment)',
+    'guide.manager.assignment.step1': 'Make sure therapists are clocked in – Therapists use the kiosk to Clock In, or you can Check In from the Therapist Management screen.',
+    'guide.manager.assignment.step2': 'Click “Add Entry” – Choose the service and the system will automatically select the next available, certified therapist.',
+    'guide.manager.assignment.step3': 'Green cells show services a therapist can perform; red cells mean they cannot perform that service.',
+    'guide.manager.assignment.step4': 'End Service when a session is finished so the therapist becomes available in the queue again.',
+    'guide.manager.assignment.step5': 'Each “Round” shows one full cycle where every therapist has received a service before the next round starts.',
+    'guide.manager.chart.title': 'How to read this chart',
+    'guide.manager.chart.text': 'The pie chart shows the share of revenue per service. Cards/tables below list how many sessions, total revenue, average price, and percentage of the day each service represents.',
+    'guide.manager.therapistChart.title': 'How to read this chart',
+    'guide.manager.therapistChart.text': "Each therapist's slice shows their share of today's revenue. Cards/tables below show sessions, total revenue, therapist commission, store share, and average per session so you can quickly compare performance.",
   },
   th: {
     // Common
@@ -267,6 +297,36 @@ const translations: Record<Language, Record<string, string>> = {
     'service.allCategories': 'ทุกหมวดหมู่',
     'service.noServices': 'ไม่พบบริการ',
     'service.create': 'สร้าง',
+
+    // Guides - Landing
+    'guide.landing.title': 'วิธีใช้งานระบบนี้',
+    'guide.landing.toggle.show': 'แสดงคู่มือ',
+    'guide.landing.toggle.hide': 'ซ่อนคู่มือ',
+    'guide.landing.manager.title': 'สำหรับผู้จัดการ',
+    'guide.landing.manager.step1': 'ไปที่หน้าจอผู้จัดการ (Manager Interface)',
+    'guide.landing.manager.step2': 'เช็คอิน/เช็คเอาต์ช่างนวดจากหน้าจอจัดการช่างนวด เพื่อให้คิวถูกต้อง',
+    'guide.landing.manager.step3': 'ใช้ตารางรายวัน (Daily Matrix) เพื่อเพิ่มบริการ ระบบจะเลือกช่างนวดที่มีทักษะและว่างถัดไปให้อัตโนมัติ',
+    'guide.landing.manager.step4': 'กด End Service เมื่อการบริการเสร็จสิ้น เพื่อให้ช่างนวดกลับเข้าไปในคิวอีกครั้ง',
+    'guide.landing.manager.step5': 'ใช้แท็บ Service Chart และ Therapist Revenue เพื่อตรวจสอบผลการทำงานและรายได้ประจำวัน',
+    'guide.landing.therapist.title': 'สำหรับช่างนวด',
+    'guide.landing.therapist.step1': 'ไปที่หน้าจอช่างนวด (Therapist Interface) เพื่อ Clock In และเข้าคิว',
+    'guide.landing.therapist.step2': 'เมื่อเลิกงานหรือพัก ให้ใช้ปุ่ม Clock Out / Check Out เพื่อให้คิวถูกต้อง',
+    'guide.landing.therapist.step3': 'สามารถปิดหน้าจอด้วย Close Screen (Stay Clocked In) โดยยังคงอยู่ในคิวได้',
+    'guide.landing.therapist.step4': 'ใช้ View Daily Summary เพื่อดูรายการบริการและยอดรวมของวัน',
+
+    // Guides - Manager Daily Matrix
+    'guide.manager.toggle.show': 'แสดงคู่มือ',
+    'guide.manager.toggle.hide': 'ซ่อนคู่มือ',
+    'guide.manager.assignment.title': 'วิธีใช้งานหน้าจอนี้ (Service Assignment)',
+    'guide.manager.assignment.step1': 'ตรวจสอบให้ช่างนวด Clock In แล้ว — ช่างนวดใช้คีออสในการ Clock In หรือผู้จัดการสามารถ Check In จากหน้าจอจัดการช่างนวดได้',
+    'guide.manager.assignment.step2': 'กด “Add Entry” เลือกบริการ ระบบจะเลือกช่างนวดที่มีทักษะและว่างถัดไปให้อัตโนมัติ',
+    'guide.manager.assignment.step3': 'ช่องสีเขียวคือบริการที่ช่างนวดทำได้ ช่องสีแดงคือบริการที่ช่างนวดทำไม่ได้',
+    'guide.manager.assignment.step4': 'กด End Service เมื่อบริการเสร็จ เพื่อให้ช่างนวดกลับเข้าไปในคิวอีกครั้ง',
+    'guide.manager.assignment.step5': 'แต่ละ “รอบ” แสดงหนึ่งรอบที่ทุกช่างนวดได้รับงานครบก่อนเริ่มรอบถัดไป',
+    'guide.manager.chart.title': 'วิธีอ่านกราฟนี้',
+    'guide.manager.chart.text': 'กราฟวงกลมแสดงสัดส่วนรายได้ตามประเภทบริการ การ์ด/ตารางด้านล่างแสดงจำนวนครั้ง รายได้รวม ราคาเฉลี่ย และเปอร์เซ็นต์ของแต่ละบริการในวันนั้น',
+    'guide.manager.therapistChart.title': 'วิธีอ่านกราฟนี้',
+    'guide.manager.therapistChart.text': 'กราฟวงกลมแต่ละส่วนแสดงสัดส่วนรายได้ของแต่ละช่างนวด การ์ด/ตารางด้านล่างแสดงจำนวนครั้ง รายได้รวม ส่วนของช่างนวด ส่วนของร้าน และค่าเฉลี่ยต่อครั้ง เพื่อเปรียบเทียบผลงานได้ง่าย',
   },
 }
 
