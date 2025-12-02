@@ -1,11 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '@/contexts/LanguageContext'
 import LanguagePicker from '@/components/LanguagePicker'
 
 export default function Home() {
   const { t } = useLanguage()
+  const [showGuide, setShowGuide] = useState(false)
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-green-50 via-white to-brand-green-100 p-4">
@@ -37,7 +39,7 @@ export default function Home() {
         </div>
 
         {/* Navigation Buttons */}
-        <div className="space-y-4">
+        <div className="space-y-4 mb-4">
           <Link
             href="/manager"
             className="block w-full bg-brand-blue-500 hover:bg-brand-blue-600 text-white font-semibold py-4 px-6 rounded-lg text-center transition-colors shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
@@ -57,6 +59,42 @@ export default function Home() {
             Live Service Board (Shop Display)
           </Link>
         </div>
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={() => setShowGuide((prev) => !prev)}
+            className="px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+          >
+            {showGuide ? 'Hide Guide' : 'Show Guide'}
+          </button>
+        </div>
+
+        {/* Simple usage guide */}
+        {showGuide && (
+          <div className="mt-1 text-xs text-gray-700 space-y-3 border-t border-gray-100 pt-3">
+            <div className="font-semibold text-gray-900">
+              How to use this system
+            </div>
+            <div>
+              <div className="font-semibold text-gray-800">For Manager</div>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Go to <span className="font-semibold">Manager Interface</span>.</li>
+                <li>Check therapists in or out from <span className="font-semibold">Therapist Management</span> so the queue is correct.</li>
+                <li>Use the <span className="font-semibold">Daily Matrix</span> to add services; the system will choose the next available, certified therapist.</li>
+                <li>Click <span className="font-semibold">End Service</span> when a session is finished so therapists re‑enter the queue.</li>
+                <li>Use the <span className="font-semibold">Service Chart</span> and <span className="font-semibold">Therapist Revenue</span> tabs to review daily performance and revenue.</li>
+              </ul>
+            </div>
+            <div>
+              <div className="font-semibold text-gray-800">For Therapist</div>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Go to <span className="font-semibold">Therapist Interface</span> to Clock In and join the queue.</li>
+                <li>When leaving or taking a break, use <span className="font-semibold">Clock Out / Check Out</span> so the queue stays accurate.</li>
+                <li>You can close the screen with <span className="font-semibold">Close Screen (Stay Clocked In)</span> and remain in the queue.</li>
+                <li>Use <span className="font-semibold">View Daily Summary</span> to see your sessions and totals for the day.</li>
+              </ul>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
