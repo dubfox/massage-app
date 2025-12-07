@@ -2,12 +2,24 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
-import { Menu, Plus, X, Users, BarChart3, ClipboardList } from 'lucide-react'
+import { Menu, Plus, X, Users, BarChart3, ClipboardList, Layers, DollarSign, CheckCircle, AlertCircle, Clock, PlusCircle, Calendar } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
 import AddEntryModal from '@/components/AddEntryModal'
+import AddGroupModal from '@/components/AddGroupModal'
+import PaymentCollectionModal from '@/components/PaymentCollectionModal'
+import ScheduledBookingModal from '@/components/ScheduledBookingModal'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useTherapistStatus } from '@/contexts/TherapistStatusContext'
 import LanguagePicker from '@/components/LanguagePicker'
+
+interface PaymentDetail {
+  method: string
+  amount: number
+  reference?: string
+  verified: boolean
+  timestamp: string
+  collectedBy?: string
+}
 
 interface ServiceEntry {
   id: string
@@ -16,8 +28,17 @@ interface ServiceEntry {
   price: number
   time: string // service start / assignment time
   endTime?: string // service end time when manager closes out the service
+  extendedMinutes?: number // Extended time in minutes
+  originalPrice?: number // Original service price before extensions
   column: number
   round: number // Track which round-robin cycle this entry belongs to
+  groupNumber?: number // Sequential group number for the day
+  paymentType?: string // Payment method (Cash, Card, QR, etc.)
+  paymentStatus?: 'paid' | 'unpaid' | 'partial' // Payment status
+  paymentDetails?: PaymentDetail[] // Payment history (for split payments)
+  notes?: string // Entry notes
+  scheduledTime?: string // ISO datetime string for scheduled bookings
+  isScheduled?: boolean // Flag to indicate if this is a scheduled booking
 }
 
 // Mock therapist data with certified services - in real app, this would come from backend
@@ -59,7 +80,11 @@ export default function ManagerDailyMatrix() {
   const { loggedInTherapists } = useTherapistStatus()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'assignment' | 'chart' | 'therapist'>('assignment')
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false)
+  const [isScheduledBookingModalOpen, setIsScheduledBookingModalOpen] = useState(false)
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
+  const [selectedGroupForPayment, setSelectedGroupForPayment] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState<'assignment' | 'chart' | 'therapist' | 'payments'>('assignment')
   const [serviceEntries, setServiceEntries] = useState<ServiceEntry[]>([])
   // Round-robin: track which therapist is next in rotation
   const [nextTherapistIndex, setNextTherapistIndex] = useState(0)
@@ -67,6 +92,23 @@ export default function ManagerDailyMatrix() {
   const [therapistQueue, setTherapistQueue] = useState<string[]>([])
   const [now, setNow] = useState<Date | null>(null)
   const [showGuide, setShowGuide] = useState(false)
+  const [extendServiceModal, setExtendServiceModal] = useState<{ 
+    open: boolean
+    entryId: string | null
+    currentMinutes: number
+    originalPrice: number
+    baseDuration: number
+  }>({
+    open: false,
+    entryId: null,
+    currentMinutes: 0,
+    originalPrice: 0,
+    baseDuration: 60,
+  })
+  const [addServiceModal, setAddServiceModal] = useState<{ open: boolean; entryId: string | null }>({
+    open: false,
+    entryId: null,
+  })
 
   // Start live clock for current time display (client-only)
   useEffect(() => {
@@ -148,6 +190,8 @@ export default function ManagerDailyMatrix() {
   const [roundServiceCounts, setRoundServiceCounts] = useState<Record<string, number>>({})
   // Track current round number
   const [currentRound, setCurrentRound] = useState(1)
+  // Track current group number (sequential for the day)
+  const [currentGroupNumber, setCurrentGroupNumber] = useState(1)
   
   // Mock check-in times - in real app, this would come from backend
   const [checkInTimes] = useState<Record<string, string>>({
@@ -162,6 +206,103 @@ export default function ManagerDailyMatrix() {
     month: '2-digit', 
     year: '2-digit' 
   })
+
+  // Service duration lookup
+  const serviceDurations: { [key: string]: number } = {
+    'Thai': 60,
+    'Foot': 60,
+    'Oil': 60,
+    'Aroma': 60,
+    'Hot': 60,
+    'Herbal': 60,
+    'Sport': 60,
+    'Back': 60,
+  }
+
+  // Helper: Parse time string (HH:MM) to minutes since midnight
+  const timeToMinutes = (timeStr: string): number => {
+    const [hours, minutes] = timeStr.split(':').map(Number)
+    return hours * 60 + minutes
+  }
+
+  // Helper: Convert minutes since midnight to time string (HH:MM)
+  const minutesToTime = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60) % 24
+    const mins = minutes % 60
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+  }
+
+  // Helper: Calculate service end time based on start time, base duration, and extensions
+  const calculateServiceEndTime = (startTime: string, serviceName: string, extendedMinutes: number = 0): string => {
+    const baseDuration = serviceDurations[serviceName] || 60
+    const totalDuration = baseDuration + extendedMinutes
+    const startMinutes = timeToMinutes(startTime)
+    const endMinutes = startMinutes + totalDuration
+    return minutesToTime(endMinutes)
+  }
+
+  // Helper: Get service duration in minutes
+  const getServiceDuration = (serviceName: string, extendedMinutes: number = 0): number => {
+    const baseDuration = serviceDurations[serviceName] || 60
+    return baseDuration + extendedMinutes
+  }
+
+  // Helper: Check if a therapist has any overlapping services at a given time
+  const isTherapistAvailable = (therapist: string, startTime: string, serviceName: string, extendedMinutes: number = 0, excludeEntryId?: string): boolean => {
+    const serviceDuration = getServiceDuration(serviceName, extendedMinutes)
+    const startMinutes = timeToMinutes(startTime)
+    const endMinutes = startMinutes + serviceDuration
+
+    // Check all services for this therapist (excluding the current entry if editing)
+    const therapistServices = serviceEntries.filter(
+      e => e.therapist === therapist && e.id !== excludeEntryId
+    )
+
+    for (const service of therapistServices) {
+      const serviceNameOnly = service.service.split(' ')[0]
+      const serviceStartMinutes = timeToMinutes(service.time)
+      const serviceEndMinutes = service.endTime 
+        ? timeToMinutes(service.endTime)
+        : serviceStartMinutes + getServiceDuration(serviceNameOnly, service.extendedMinutes || 0)
+
+      // Check for overlap: new service starts before existing service ends AND new service ends after existing service starts
+      if (startMinutes < serviceEndMinutes && endMinutes > serviceStartMinutes) {
+        return false // Overlap detected
+      }
+    }
+
+    return true // No overlap
+  }
+
+  // Helper: Find the next available time for a therapist (after their last service ends)
+  const getNextAvailableTime = (therapist: string): string => {
+    const therapistServices = serviceEntries
+      .filter(e => e.therapist === therapist)
+      .sort((a, b) => {
+        const aEnd = a.endTime 
+          ? timeToMinutes(a.endTime)
+          : timeToMinutes(a.time) + getServiceDuration(a.service.split(' ')[0], a.extendedMinutes || 0)
+        const bEnd = b.endTime
+          ? timeToMinutes(b.endTime)
+          : timeToMinutes(b.time) + getServiceDuration(b.service.split(' ')[0], b.extendedMinutes || 0)
+        return bEnd - aEnd // Sort descending (latest end time first)
+      })
+
+    if (therapistServices.length === 0) {
+      // No existing services, use current time
+      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    }
+
+    // Get the latest service end time
+    const latestService = therapistServices[0]
+    const latestServiceName = latestService.service.split(' ')[0]
+    const latestEndTime = latestService.endTime
+      ? timeToMinutes(latestService.endTime)
+      : timeToMinutes(latestService.time) + getServiceDuration(latestServiceName, latestService.extendedMinutes || 0)
+
+    // Return the end time as the next available start time
+    return minutesToTime(latestEndTime)
+  }
 
   // Get the next therapist in round-robin rotation for a specific service
   // This is a pure function that doesn't modify state - returns the therapist to use
@@ -258,6 +399,23 @@ export default function ManagerDailyMatrix() {
       }
     }
     
+    // Calculate the correct start time to avoid conflicts
+    let serviceStartTime: string
+    if (entry.timeSlot === 'auto') {
+      // For auto mode, calculate next available time for this therapist
+      serviceStartTime = getNextAvailableTime(assignedTherapist)
+    } else {
+      // For manual mode, use the provided time but check for conflicts
+      serviceStartTime = entry.time || new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+      
+      // Check if therapist is available at this time
+      if (!isTherapistAvailable(assignedTherapist, serviceStartTime, serviceName, 0)) {
+        // Conflict detected - use next available time instead
+        serviceStartTime = getNextAvailableTime(assignedTherapist)
+        alert(`Therapist ${assignedTherapist} has a scheduling conflict. Service will start at ${serviceStartTime} instead.`)
+      }
+    }
+    
     const therapistEntries = serviceEntries.filter(e => e.therapist === assignedTherapist)
     const nextColumn = therapistEntries.length > 0 
       ? Math.max(...therapistEntries.map(e => e.column)) + 1 
@@ -289,14 +447,29 @@ export default function ManagerDailyMatrix() {
         : currentRound
     }
     
+    // Determine payment status
+    const paymentStatus = entry.paymentType === 'Unpaid' ? 'unpaid' : 'paid'
+    const paymentDetails: PaymentDetail[] = entry.paymentType !== 'Unpaid' ? [{
+      method: entry.paymentType || 'Cash',
+      amount: entry.price + (entry.addons?.reduce((sum: number, a: any) => sum + a.price, 0) || 0),
+      verified: true,
+      timestamp: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    }] : []
+
+    const finalPrice = entry.price + (entry.addons?.reduce((sum: number, a: any) => sum + a.price, 0) || 0)
     const newEntry: ServiceEntry = {
       id: Date.now().toString(),
       therapist: assignedTherapist,
       service: `${entry.service} ${entry.price}`,
-      price: entry.price + (entry.addons?.reduce((sum: number, a: any) => sum + a.price, 0) || 0),
-      time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      price: finalPrice,
+      originalPrice: finalPrice, // Store original price for extension calculations
+      time: serviceStartTime, // Use calculated start time to avoid conflicts
       column: entry.timeSlot === 'auto' ? nextColumn : parseInt(entry.timeSlot) || nextColumn,
-      round: entryRound
+      round: entryRound,
+      paymentType: entry.paymentType || 'Cash',
+      paymentStatus: paymentStatus,
+      paymentDetails: paymentDetails,
+      notes: entry.notes
     }
     
     // Update round service counts and round number
@@ -348,6 +521,417 @@ export default function ManagerDailyMatrix() {
     setIsModalOpen(false)
   }
 
+  // Handle scheduled booking
+  const handleScheduledBooking = (entry: any) => {
+    // Extract service ID to verify therapist assignment
+    const serviceName = entry.service.split(' ')[0]
+    const selectedService = availableServices.find(s => s.name === serviceName)
+    const serviceId = selectedService?.id
+
+    // Verify therapist is certified
+    if (serviceId) {
+      const therapistInfo = therapistsData.find(t => t.name === entry.therapist)
+      const isCertified = therapistInfo?.certifiedServices?.includes(serviceId)
+      
+      if (!isCertified) {
+        // Silently return - validation should happen in the modal
+        return
+      }
+    }
+
+    // Calculate scheduled time in HH:MM format
+    const scheduledDateTime = new Date(entry.scheduledDateTime)
+    const scheduledTimeStr = scheduledDateTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
+    // Get next column for this therapist (based on existing entries)
+    const therapistEntries = serviceEntries.filter(e => e.therapist === entry.therapist)
+    const nextColumn = therapistEntries.length > 0 
+      ? Math.max(...therapistEntries.map(e => e.column)) + 1 
+      : 1
+
+    // Determine round (use current round or highest round for therapist + 1)
+    const therapistRounds = serviceEntries
+      .filter(e => e.therapist === entry.therapist)
+      .map(e => e.round)
+    const entryRound = therapistRounds.length > 0 
+      ? Math.max(...therapistRounds) + 1 
+      : currentRound
+
+    // Determine payment status
+    const paymentStatus = entry.paymentType === 'Unpaid' ? 'unpaid' : 'paid'
+    const paymentDetails: PaymentDetail[] = entry.paymentType !== 'Unpaid' ? [{
+      method: entry.paymentType || 'Cash',
+      amount: entry.price + (entry.addons?.reduce((sum: number, a: any) => sum + a.price, 0) || 0),
+      verified: true,
+      timestamp: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    }] : []
+
+    const finalPrice = entry.price + (entry.addons?.reduce((sum: number, a: any) => sum + a.price, 0) || 0)
+    const scheduledEntry: ServiceEntry = {
+      id: `scheduled-${Date.now()}`,
+      therapist: entry.therapist,
+      service: `${entry.service} ${entry.price}`,
+      price: finalPrice,
+      originalPrice: finalPrice,
+      time: scheduledTimeStr, // Will be updated when activated
+      column: nextColumn,
+      round: entryRound,
+      paymentType: entry.paymentType || 'Cash',
+      paymentStatus: paymentStatus,
+      paymentDetails: paymentDetails,
+      notes: entry.notes || `Scheduled for ${entry.scheduledDate} at ${entry.scheduledTime}`,
+      scheduledTime: entry.scheduledDateTime, // Store ISO datetime string
+      isScheduled: true, // Flag as scheduled
+    }
+
+    setServiceEntries([...serviceEntries, scheduledEntry])
+    setIsScheduledBookingModalOpen(false)
+    // Booking scheduled successfully - no alert needed
+  }
+
+  // Check and activate scheduled bookings
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const checkScheduledBookings = () => {
+      const now = new Date()
+      setServiceEntries(prevEntries => {
+        const updated = prevEntries.map(entry => {
+          // If entry is scheduled and time has arrived, activate it
+          if (entry.isScheduled && entry.scheduledTime && !entry.endTime) {
+            const scheduledTime = new Date(entry.scheduledTime)
+            // Activate if scheduled time is within the last minute (to account for timing)
+            const timeDiff = now.getTime() - scheduledTime.getTime()
+            if (timeDiff >= 0 && timeDiff < 60000) { // Within 1 minute
+              // Update time to actual activation time
+              const actualTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+              return {
+                ...entry,
+                time: actualTime,
+                isScheduled: false, // Remove scheduled flag
+                notes: entry.notes?.replace(/Scheduled for.*/, '') || '',
+              }
+            }
+          }
+          return entry
+        })
+        return updated
+      })
+    }
+
+    // Check every minute
+    const intervalId = setInterval(checkScheduledBookings, 60000)
+    
+    // Also check immediately
+    checkScheduledBookings()
+
+    return () => clearInterval(intervalId)
+  }, [])
+
+  const handleAddGroup = (entries: any[]) => {
+    // Process all group entries and add them to serviceEntries
+    // Assign the same group number to all entries in this group
+    const groupNumber = currentGroupNumber
+    const newEntries: ServiceEntry[] = []
+    let updatedRoundServiceCounts = { ...roundServiceCounts }
+    let updatedTherapistQueue = [...therapistQueue]
+    let updatedNextTherapistIndex = nextTherapistIndex
+    let updatedCurrentRound = currentRound
+    
+    // Track therapists already assigned in this group to prevent duplicate assignments
+    const therapistsAssignedInGroup = new Set<string>()
+    
+    entries.forEach((entry, index) => {
+      // Extract service ID to verify therapist assignment
+      const serviceName = entry.service.split(' ')[0]
+      const selectedService = availableServices.find(s => s.name === serviceName)
+      const serviceId = selectedService?.id
+      
+      let assignedTherapist = entry.therapist
+      
+      if (entry.timeSlot === 'auto' && serviceId) {
+        // Determine which therapists are currently busy (have an active service without endTime)
+        const busyTherapists = new Set(
+          serviceEntries
+            .filter(e => e.therapist && !e.endTime)
+            .map(e => e.therapist)
+        )
+        
+        // Find therapists certified for this service from the current queue
+        // who are NOT currently busy AND NOT already assigned in this group
+        const certifiedTherapists = updatedTherapistQueue.filter(therapistName => {
+          const therapistInfo = therapistsData.find(t => t.name === therapistName)
+          const isCertified = therapistInfo?.certifiedServices?.includes(serviceId)
+          const isBusy = busyTherapists.has(therapistName)
+          const isAlreadyAssignedInGroup = therapistsAssignedInGroup.has(therapistName)
+          return Boolean(isCertified && !isBusy && !isAlreadyAssignedInGroup)
+        })
+        
+        if (certifiedTherapists.length > 0) {
+          // Check if the therapist at nextTherapistIndex is available
+          const nextTherapist = updatedTherapistQueue[updatedNextTherapistIndex]
+          const nextTherapistInfo = therapistsData.find(t => t.name === nextTherapist)
+          const isNextTherapistCertified = nextTherapistInfo?.certifiedServices?.includes(serviceId)
+          const isNextTherapistBusy = busyTherapists.has(nextTherapist)
+          const isNextTherapistInGroup = therapistsAssignedInGroup.has(nextTherapist)
+          
+          if (isNextTherapistCertified && !isNextTherapistBusy && !isNextTherapistInGroup) {
+            // Next therapist is certified, free, and not in this group - use them
+            const serviceCount = updatedRoundServiceCounts[nextTherapist] || 0
+            if (serviceCount === 0) {
+              assignedTherapist = nextTherapist
+            } else {
+              // Find first certified therapist who hasn't received a service in this round
+              for (const therapist of updatedTherapistQueue) {
+                if (certifiedTherapists.includes(therapist)) {
+                  const serviceCount = updatedRoundServiceCounts[therapist] || 0
+                  if (serviceCount === 0) {
+                    assignedTherapist = therapist
+                    break
+                  }
+                }
+              }
+              // If all have services, use first available
+              if (assignedTherapist === entry.therapist && certifiedTherapists.length > 0) {
+                assignedTherapist = certifiedTherapists[0]
+              }
+            }
+          } else {
+            // Next therapist is not available, find first certified & free therapist not in group
+            for (const therapist of updatedTherapistQueue) {
+              if (certifiedTherapists.includes(therapist)) {
+                const serviceCount = updatedRoundServiceCounts[therapist] || 0
+                if (serviceCount === 0) {
+                  assignedTherapist = therapist
+                  break
+                }
+              }
+            }
+            // If all have services, use first available
+            if (assignedTherapist === entry.therapist && certifiedTherapists.length > 0) {
+              assignedTherapist = certifiedTherapists[0]
+            }
+          }
+        } else {
+          // No available therapists - this shouldn't happen, but fallback to original
+          const therapistInfo = therapistsData.find(t => t.name === assignedTherapist)
+          const isAssignedCertified = therapistInfo?.certifiedServices?.includes(serviceId)
+          if (!isAssignedCertified) {
+            // Try to find any certified therapist (even if busy or in group)
+            const anyCertified = therapistsData
+              .filter(t => t.certifiedServices?.includes(serviceId))
+              .map(t => t.name)
+              .filter(name => loggedInTherapists.includes(name))
+            if (anyCertified.length > 0) {
+              assignedTherapist = anyCertified[0]
+            }
+          }
+        }
+      }
+      
+      // Mark this therapist as assigned in this group
+      therapistsAssignedInGroup.add(assignedTherapist)
+      
+      // Calculate next column for this therapist
+      const existingEntries = [...serviceEntries, ...newEntries]
+      const therapistEntries = existingEntries.filter(e => e.therapist === assignedTherapist)
+      const nextColumn = therapistEntries.length > 0 
+        ? Math.max(...therapistEntries.map(e => e.column)) + 1 
+        : 1
+      
+      // Check round completion
+      const activeTherapists = getAvailableTherapists
+      updatedRoundServiceCounts[assignedTherapist] = (updatedRoundServiceCounts[assignedTherapist] || 0) + 1
+      const allHaveService = activeTherapists.every(therapist => 
+        (updatedRoundServiceCounts[therapist] || 0) > 0
+      )
+      
+      // Determine round
+      let entryRound: number
+      if (entry.timeSlot === 'auto') {
+        entryRound = updatedCurrentRound
+      } else {
+        const therapistRounds = existingEntries
+          .filter(e => e.therapist === assignedTherapist)
+          .map(e => e.round)
+        entryRound = therapistRounds.length > 0 
+          ? Math.max(...therapistRounds) + 1 
+          : updatedCurrentRound
+      }
+      
+      // Determine payment status for group entries
+      // Group payment is handled at group level, individual entries inherit status
+      const groupPaymentStatus = entries[0]?.paymentType === 'Unpaid' ? 'unpaid' : 
+                                 entries[0]?.paymentType ? 'paid' : 'unpaid'
+      
+      // Calculate the correct start time to avoid conflicts
+      let serviceStartTime: string
+      if (entry.timeSlot === 'auto') {
+        // For auto mode, calculate next available time for this therapist
+        // Use existing entries + already processed entries in this group
+        const allExistingEntries = [...serviceEntries, ...newEntries]
+        const therapistServices = allExistingEntries.filter(e => e.therapist === assignedTherapist)
+        
+        if (therapistServices.length === 0) {
+          serviceStartTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+        } else {
+          // Find the latest end time for this therapist
+          const sortedServices = therapistServices.sort((a, b) => {
+            const aEnd = a.endTime 
+              ? timeToMinutes(a.endTime)
+              : timeToMinutes(a.time) + getServiceDuration(a.service.split(' ')[0], a.extendedMinutes || 0)
+            const bEnd = b.endTime
+              ? timeToMinutes(b.endTime)
+              : timeToMinutes(b.time) + getServiceDuration(b.service.split(' ')[0], b.extendedMinutes || 0)
+            return bEnd - aEnd
+          })
+          
+          const latestService = sortedServices[0]
+          const latestServiceName = latestService.service.split(' ')[0]
+          const latestEndTime = latestService.endTime
+            ? timeToMinutes(latestService.endTime)
+            : timeToMinutes(latestService.time) + getServiceDuration(latestServiceName, latestService.extendedMinutes || 0)
+          
+          serviceStartTime = minutesToTime(latestEndTime)
+        }
+      } else {
+        // For manual mode, use the provided time but check for conflicts
+        serviceStartTime = entry.time || new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+        
+        // Check if therapist is available at this time
+        const allExistingEntries = [...serviceEntries, ...newEntries]
+        if (!isTherapistAvailable(assignedTherapist, serviceStartTime, serviceName, 0)) {
+          // Conflict detected - use next available time instead
+          const therapistServices = allExistingEntries.filter(e => e.therapist === assignedTherapist)
+          if (therapistServices.length > 0) {
+            const sortedServices = therapistServices.sort((a, b) => {
+              const aEnd = a.endTime 
+                ? timeToMinutes(a.endTime)
+                : timeToMinutes(a.time) + getServiceDuration(a.service.split(' ')[0], a.extendedMinutes || 0)
+              const bEnd = b.endTime
+                ? timeToMinutes(b.endTime)
+                : timeToMinutes(b.time) + getServiceDuration(b.service.split(' ')[0], b.extendedMinutes || 0)
+              return bEnd - aEnd
+            })
+            
+            const latestService = sortedServices[0]
+            const latestServiceName = latestService.service.split(' ')[0]
+            const latestEndTime = latestService.endTime
+              ? timeToMinutes(latestService.endTime)
+              : timeToMinutes(latestService.time) + getServiceDuration(latestServiceName, latestService.extendedMinutes || 0)
+            
+            serviceStartTime = minutesToTime(latestEndTime)
+          }
+        }
+      }
+      
+      // Create new entry with group number and payment info
+      const finalPrice = entry.price + (entry.addons?.reduce((sum: number, a: any) => sum + a.price, 0) || 0)
+      const newEntry: ServiceEntry = {
+        id: `${Date.now()}-${index}`,
+        therapist: assignedTherapist,
+        service: `${entry.service} ${entry.price}`,
+        price: finalPrice,
+        originalPrice: finalPrice, // Store original price for extension calculations
+        time: serviceStartTime, // Use calculated start time to avoid conflicts
+        column: entry.timeSlot === 'auto' ? nextColumn : parseInt(entry.timeSlot) || nextColumn,
+        round: entryRound,
+        groupNumber: groupNumber,
+        paymentType: entries[0]?.paymentType || 'Cash',
+        paymentStatus: groupPaymentStatus,
+        notes: entries[0]?.notes
+      }
+      
+      newEntries.push(newEntry)
+      
+      // Update queue: move assigned therapist to back
+      if (entry.timeSlot === 'auto') {
+        const assignedIndex = updatedTherapistQueue.indexOf(assignedTherapist)
+        if (assignedIndex >= 0) {
+          updatedTherapistQueue = [
+            ...updatedTherapistQueue.filter(t => t !== assignedTherapist),
+            assignedTherapist
+          ]
+          
+          if (assignedIndex === updatedNextTherapistIndex) {
+            if (updatedNextTherapistIndex >= updatedTherapistQueue.length - 1) {
+              updatedNextTherapistIndex = 0
+            }
+          } else if (assignedIndex < updatedNextTherapistIndex) {
+            updatedNextTherapistIndex = Math.max(0, updatedNextTherapistIndex - 1)
+          }
+        }
+      }
+      
+      // Check if round is complete
+      if (allHaveService) {
+        updatedRoundServiceCounts = {}
+        updatedNextTherapistIndex = 0
+        updatedTherapistQueue = [...getAvailableTherapists]
+        updatedCurrentRound = updatedCurrentRound + 1
+      }
+    })
+    
+    // Apply all updates at once
+    setServiceEntries(prev => [...prev, ...newEntries])
+    setRoundServiceCounts(updatedRoundServiceCounts)
+    setNextTherapistIndex(updatedNextTherapistIndex)
+    setTherapistQueue(updatedTherapistQueue)
+    setCurrentRound(updatedCurrentRound)
+    // Increment group number for next group
+    setCurrentGroupNumber(prev => prev + 1)
+    setIsGroupModalOpen(false)
+    
+    // Payment collection will only be available after all services are completed
+    // Do not open payment modal automatically
+  }
+
+  // Get all entries for a specific group
+  const getGroupEntries = (groupNumber: number): ServiceEntry[] => {
+    return serviceEntries.filter(entry => entry.groupNumber === groupNumber)
+  }
+
+  // Check if all services in a group are completed (have endTime)
+  const isGroupCompleted = (groupNumber: number): boolean => {
+    const groupEntries = getGroupEntries(groupNumber)
+    if (groupEntries.length === 0) return false
+    return groupEntries.every(entry => entry.endTime !== undefined)
+  }
+
+  // Handle payment collection/update - now supports per-service payments
+  interface ServicePayment {
+    entryId: string
+    paymentDetails: PaymentDetail[]
+    paymentStatus: 'paid' | 'unpaid' | 'partial'
+  }
+
+  const handlePaymentCollection = (servicePayments: ServicePayment[]) => {
+    if (selectedGroupForPayment === null) return
+
+    // Update each service entry with its own payment information
+    setServiceEntries(prev => prev.map(entry => {
+      if (entry.groupNumber === selectedGroupForPayment) {
+        const servicePayment = servicePayments.find(sp => sp.entryId === entry.id)
+        if (servicePayment) {
+          // Determine payment type from payment details
+          const primaryPaymentMethod = servicePayment.paymentDetails[0]?.method || 'Cash'
+          const isSplitPayment = servicePayment.paymentDetails.length > 1
+          
+          return {
+            ...entry,
+            paymentType: isSplitPayment ? 'Split' : primaryPaymentMethod,
+            paymentStatus: servicePayment.paymentStatus,
+            paymentDetails: servicePayment.paymentDetails,
+          }
+        }
+      }
+      return entry
+    }))
+
+    setIsPaymentModalOpen(false)
+    setSelectedGroupForPayment(null)
+  }
+
   const getTherapistTotal = (therapistName: string) => {
     return serviceEntries
       .filter(entry => entry.therapist === therapistName)
@@ -394,6 +978,176 @@ export default function ManagerDailyMatrix() {
     )
   }
 
+  // Open extend service modal
+  const handleOpenExtendService = (entryId: string) => {
+    const entry = serviceEntries.find(e => e.id === entryId)
+    if (!entry) return
+    
+    // Get service duration and original price
+    const serviceName = entry.service.split(' ')[0]
+    const serviceInfo = availableServices.find(s => s.name === serviceName)
+    const serviceDurations: { [key: string]: number } = {
+      'Thai': 60,
+      'Foot': 60,
+      'Oil': 60,
+      'Aroma': 60,
+      'Hot': 60,
+      'Herbal': 60,
+      'Sport': 60,
+      'Back': 60,
+    }
+    const baseDuration = serviceDurations[serviceName] || 60
+    const currentMinutes = baseDuration + (entry.extendedMinutes || 0)
+    
+    // Get original price (stored or calculate from service info)
+    let originalPrice = entry.originalPrice || entry.price
+    // If originalPrice is not stored, use serviceInfo price
+    if (!entry.originalPrice && serviceInfo) {
+      originalPrice = serviceInfo.price
+    }
+    // If we still don't have it and there are extensions, reverse-calculate
+    if (!entry.originalPrice && entry.extendedMinutes && entry.extendedMinutes > 0 && serviceInfo) {
+      const pricePerMinute = serviceInfo.price / baseDuration
+      const extensionCost = entry.extendedMinutes * pricePerMinute
+      originalPrice = entry.price - extensionCost
+    }
+    
+    setExtendServiceModal({
+      open: true,
+      entryId,
+      currentMinutes,
+      originalPrice,
+      baseDuration,
+    })
+  }
+
+  // Handle extending service time
+  const handleExtendService = (additionalMinutes: number) => {
+    if (!extendServiceModal.entryId || additionalMinutes <= 0) return
+    
+    // Calculate additional cost based on original price/duration ratio
+    const pricePerMinute = extendServiceModal.originalPrice / extendServiceModal.baseDuration
+    const additionalCost = Math.round(pricePerMinute * additionalMinutes)
+    
+    setServiceEntries(prev =>
+      prev.map(entry => {
+        if (entry.id === extendServiceModal.entryId) {
+          // Preserve originalPrice if it exists, otherwise use the current originalPrice from modal
+          const preservedOriginalPrice = entry.originalPrice || extendServiceModal.originalPrice
+          return {
+            ...entry,
+            extendedMinutes: (entry.extendedMinutes || 0) + additionalMinutes,
+            price: entry.price + additionalCost, // Add extension cost to total price
+            originalPrice: preservedOriginalPrice, // Preserve original price for future extensions
+          }
+        }
+        return entry
+      })
+    )
+    
+    setExtendServiceModal({ 
+      open: false, 
+      entryId: null, 
+      currentMinutes: 0,
+      originalPrice: 0,
+      baseDuration: 60,
+    })
+  }
+
+  // Handle adding an additional service to an existing entry
+  const handleAddServiceToEntry = (entry: any) => {
+    if (!addServiceModal.entryId) return
+    
+    const existingEntry = serviceEntries.find(e => e.id === addServiceModal.entryId)
+    if (!existingEntry) return
+
+    // Extract service name and get service info
+    const serviceName = entry.service.split(' ')[0]
+    const selectedService = availableServices.find(s => s.name === serviceName)
+    if (!selectedService) return
+
+    // Verify therapist is certified for the new service
+    const therapistInfo = therapistsData.find(t => t.name === existingEntry.therapist)
+    const isCertified = therapistInfo?.certifiedServices?.includes(selectedService.id)
+    
+    if (!isCertified) {
+      alert(`Therapist ${existingEntry.therapist} is not certified for ${serviceName} service.`)
+      setAddServiceModal({ open: false, entryId: null })
+      return
+    }
+
+    // Get existing service duration (base + extended)
+    const existingServiceName = existingEntry.service.split(' ')[0]
+    const existingBaseDuration = serviceDurations[existingServiceName] || 60
+    const existingExtendedMinutes = existingEntry.extendedMinutes || 0
+    const existingTotalDuration = existingBaseDuration + existingExtendedMinutes
+    
+    // Get new service duration
+    const newServiceDuration = serviceDurations[serviceName] || 60
+    
+    // Calculate combined duration
+    const combinedDuration = existingTotalDuration + newServiceDuration
+    const twoHoursInMinutes = 120
+    
+    // Calculate when the existing service ends
+    const existingServiceEndTime = existingEntry.endTime 
+      ? existingEntry.endTime
+      : calculateServiceEndTime(existingEntry.time, existingServiceName, existingExtendedMinutes)
+    
+    // Calculate start time for new service (after existing service ends)
+    let newServiceStartTime = existingServiceEndTime
+    
+    // Check if therapist is available at this time (should be, but verify)
+    if (!isTherapistAvailable(existingEntry.therapist, newServiceStartTime, serviceName, 0, existingEntry.id)) {
+      // If not available, find next available time
+      const nextAvailable = getNextAvailableTime(existingEntry.therapist)
+      // Use the later of the two times
+      const existingEndMinutes = timeToMinutes(existingServiceEndTime)
+      const nextAvailableMinutes = timeToMinutes(nextAvailable)
+      newServiceStartTime = nextAvailableMinutes > existingEndMinutes ? nextAvailable : existingServiceEndTime
+      
+      alert(`Scheduling conflict detected. New service will start at ${newServiceStartTime}.`)
+    }
+    
+    // Determine round: same round if combined duration <= 2 hours, otherwise new round
+    let assignedRound = existingEntry.round
+    if (combinedDuration > twoHoursInMinutes) {
+      // Assign to a new round (highest round for this therapist + 1)
+      const therapistRounds = serviceEntries
+        .filter(e => e.therapist === existingEntry.therapist)
+        .map(e => e.round)
+      assignedRound = therapistRounds.length > 0 
+        ? Math.max(...therapistRounds) + 1 
+        : currentRound + 1
+    }
+
+    // Create a new entry for the additional service
+    const finalPrice = entry.price + (entry.addons?.reduce((sum: number, a: any) => sum + a.price, 0) || 0)
+    const newServiceEntry: ServiceEntry = {
+      id: `${Date.now()}-additional`,
+      therapist: existingEntry.therapist,
+      service: `${entry.service} ${entry.price}`,
+      price: finalPrice,
+      originalPrice: finalPrice,
+      time: newServiceStartTime, // Start after existing service ends
+      column: existingEntry.column, // Same column
+      round: assignedRound, // Same round if within 2 hours, otherwise new round
+      groupNumber: combinedDuration <= twoHoursInMinutes ? existingEntry.groupNumber : undefined, // Same group only if same round
+      paymentType: entry.paymentType || 'Cash',
+      paymentStatus: entry.paymentType === 'Unpaid' ? 'unpaid' : 'paid',
+      paymentDetails: entry.paymentType !== 'Unpaid' ? [{
+        method: entry.paymentType || 'Cash',
+        amount: finalPrice,
+        verified: true,
+        timestamp: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      }] : [],
+      notes: `Additional service added to ${existingEntry.service.split(' ')[0]}`,
+    }
+
+    setServiceEntries(prev => [...prev, newServiceEntry])
+    setAddServiceModal({ open: false, entryId: null })
+  }
+
   // Get all rounds that have entries for a therapist
   const getTherapistRounds = (therapist: string) => {
     const rounds = new Set(serviceEntries
@@ -431,6 +1185,31 @@ export default function ManagerDailyMatrix() {
     return serviceEntries
       .filter(entry => entry.therapist === therapistName && entry.round === round)
       .reduce((sum, entry) => sum + entry.price, 0)
+  }
+
+  // Get unique group numbers for a specific round
+  const getGroupsInRound = (round: number) => {
+    const groups = new Set(
+      serviceEntries
+        .filter(entry => entry.round === round && entry.groupNumber)
+        .map(entry => entry.groupNumber)
+        .filter((num): num is number => num !== undefined)
+    )
+    return Array.from(groups).sort((a, b) => a - b)
+  }
+
+  // Get overall payment status for a group (based on individual service payments)
+  const getGroupPaymentStatus = (groupNumber: number): 'paid' | 'unpaid' | 'partial' => {
+    const entries = getGroupEntries(groupNumber)
+    if (entries.length === 0) return 'unpaid'
+    
+    const statuses = entries.map(e => e.paymentStatus || 'unpaid')
+    const allPaid = statuses.every(s => s === 'paid')
+    const allUnpaid = statuses.every(s => s === 'unpaid')
+    
+    if (allPaid) return 'paid'
+    if (allUnpaid) return 'unpaid'
+    return 'partial'
   }
 
   // Get service distribution data for pie chart
@@ -611,6 +1390,31 @@ export default function ManagerDailyMatrix() {
               <Plus className="w-5 h-5" />
               {t('manager.addEntry')}
             </button>
+            <button
+              onClick={() => setIsScheduledBookingModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors shadow-md bg-purple-500 hover:bg-purple-600 text-white cursor-pointer"
+              title="Schedule a booking for a future date and time"
+            >
+              <Calendar className="w-5 h-5" />
+              Schedule Booking
+            </button>
+            <button
+              onClick={() => hasAvailableTherapists && setIsGroupModalOpen(true)}
+              disabled={!hasAvailableTherapists}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors shadow-md ${
+                hasAvailableTherapists
+                  ? 'bg-brand-blue-500 hover:bg-brand-blue-600 text-white cursor-pointer'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+              }`}
+              title={
+                hasAvailableTherapists
+                  ? t('manager.addGroup')
+                  : 'No therapists are currently clocked in and available'
+              }
+            >
+              <Layers className="w-5 h-5" />
+              {t('manager.addGroup')}
+            </button>
           </div>
         </div>
       </header>
@@ -716,9 +1520,51 @@ export default function ManagerDailyMatrix() {
             <div key={`round-${round}`} className="bg-white rounded-lg shadow-sm border-2 border-gray-300 overflow-hidden">
               {/* Round Header */}
               <div className="bg-brand-blue-100 border-b-2 border-brand-blue-300 px-4 py-3">
-                <h2 className="text-lg font-bold text-brand-blue-800">
-                  Round {round} - Entry Sheet
-                </h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-brand-blue-800">
+                    Round {round} - Entry Sheet
+                  </h2>
+                  {getGroupsInRound(round).length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-brand-blue-700 font-medium">Groups:</span>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {getGroupsInRound(round).map((groupNum) => {
+                          const groupPaymentStatus = getGroupPaymentStatus(groupNum)
+                          const isCompleted = isGroupCompleted(groupNum)
+                          const statusColors = {
+                            paid: 'bg-brand-green-200 text-brand-green-800 border-brand-green-400',
+                            partial: 'bg-orange-200 text-orange-800 border-orange-400',
+                            unpaid: 'bg-red-200 text-red-800 border-red-400',
+                          }
+                          const canCollectPayment = isCompleted
+                          return (
+                            <button
+                              key={groupNum}
+                              onClick={() => {
+                                if (canCollectPayment) {
+                                  setSelectedGroupForPayment(groupNum)
+                                  setIsPaymentModalOpen(true)
+                                }
+                              }}
+                              disabled={!canCollectPayment}
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border transition-opacity ${
+                                canCollectPayment 
+                                  ? `cursor-pointer hover:opacity-80 ${statusColors[groupPaymentStatus]}`
+                                  : 'cursor-not-allowed opacity-50 bg-gray-200 text-gray-600 border-gray-300'
+                              }`}
+                              title={canCollectPayment 
+                                ? `Group ${groupNum} - ${t('payment.collectPayment')}`
+                                : `Group ${groupNum} - ${t('payment.paymentAvailableAfterCompletion')}`
+                              }
+                            >
+                              G{groupNum}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               
               {/* Desktop / Tablet: Ledger Table */}
@@ -789,7 +1635,8 @@ export default function ManagerDailyMatrix() {
                                 e.service.toLowerCase().includes(serviceName.toLowerCase())
                               )
 
-                              const activeEntries = entriesForCell.filter(e => !e.endTime)
+                              const activeEntries = entriesForCell.filter(e => !e.endTime && !e.isScheduled)
+                              const scheduledEntries = entriesForCell.filter(e => !e.endTime && e.isScheduled)
                               const completedEntries = entriesForCell.filter(e => e.endTime)
 
                               // Determine if this therapist is certified for this service
@@ -813,8 +1660,41 @@ export default function ManagerDailyMatrix() {
                                   {/* Completed services */}
                                   {isCertified && completedEntries.map(entry => (
                                     <div key={entry.id} className="mb-1">
-                                      <div className="font-semibold text-gray-800">
-                                        {serviceName} {entry.price.toLocaleString()} THB
+                                      <div className="flex items-center gap-1">
+                                        <div className="font-semibold text-gray-800">
+                                          {serviceName} {entry.price.toLocaleString()} THB
+                                        </div>
+                                        {entry.groupNumber && (() => {
+                                          const paymentStatus = entry.paymentStatus || 'unpaid'
+                                          const groupCompleted = isGroupCompleted(entry.groupNumber!)
+                                          const statusColors = {
+                                            paid: 'bg-brand-green-100 text-brand-green-700 border-brand-green-300',
+                                            partial: 'bg-orange-100 text-orange-700 border-orange-300',
+                                            unpaid: 'bg-red-100 text-red-700 border-red-300',
+                                          }
+                                          return (
+                                            <span 
+                                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold border transition-opacity ${
+                                                groupCompleted 
+                                                  ? `cursor-pointer hover:opacity-80 ${statusColors[paymentStatus]}`
+                                                  : 'cursor-not-allowed opacity-50 bg-gray-100 text-gray-600 border-gray-300'
+                                              }`}
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                if (groupCompleted) {
+                                                  setSelectedGroupForPayment(entry.groupNumber!)
+                                                  setIsPaymentModalOpen(true)
+                                                }
+                                              }}
+                                              title={groupCompleted 
+                                                ? `Group ${entry.groupNumber} - Click to manage payment`
+                                                : `Group ${entry.groupNumber} - Payment available after service completion`
+                                              }
+                                            >
+                                              G{entry.groupNumber}
+                                            </span>
+                                          )
+                                        })()}
                                       </div>
                                       <div className="text-[10px] text-gray-500">
                                         Start: {entry.time} • End: {entry.endTime}
@@ -822,21 +1702,100 @@ export default function ManagerDailyMatrix() {
                                     </div>
                                   ))}
 
+                                  {/* Scheduled bookings (not yet activated) */}
+                                  {isCertified && scheduledEntries.map(entry => {
+                                    const scheduledTime = entry.scheduledTime ? new Date(entry.scheduledTime) : null
+                                    const scheduledDateStr = scheduledTime?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                                    const scheduledTimeStr = scheduledTime?.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                                    return (
+                                      <div key={entry.id} className="mb-1 p-1.5 bg-purple-50 border border-purple-200 rounded">
+                                        <div className="flex items-center gap-1">
+                                          <div className="font-semibold text-purple-700 text-[10px]">
+                                            {serviceName} {entry.price.toLocaleString()} THB
+                                          </div>
+                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-300">
+                                            <Calendar className="w-2.5 h-2.5 mr-0.5" />
+                                            Scheduled
+                                          </span>
+                                        </div>
+                                        <div className="text-[9px] text-purple-600 mt-0.5">
+                                          {scheduledDateStr} at {scheduledTimeStr}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+
                                   {/* Active services (no end time yet) */}
                                   {isCertified && activeEntries.map(entry => (
                                     <div key={entry.id} className="space-y-1">
-                                      <div className="font-semibold text-brand-green-700">
-                                        {serviceName} {entry.price.toLocaleString()} THB
+                                      <div className="flex items-center gap-1">
+                                        <div className="font-semibold text-brand-green-700">
+                                          {serviceName} {entry.price.toLocaleString()} THB
+                                        </div>
+                                        {entry.groupNumber && (() => {
+                                          const paymentStatus = entry.paymentStatus || 'unpaid'
+                                          const groupCompleted = isGroupCompleted(entry.groupNumber!)
+                                          const statusColors = {
+                                            paid: 'bg-brand-green-100 text-brand-green-700 border-brand-green-300',
+                                            partial: 'bg-orange-100 text-orange-700 border-orange-300',
+                                            unpaid: 'bg-red-100 text-red-700 border-red-300',
+                                          }
+                                          return (
+                                            <span 
+                                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold border transition-opacity ${
+                                                groupCompleted 
+                                                  ? `cursor-pointer hover:opacity-80 ${statusColors[paymentStatus]}`
+                                                  : 'cursor-not-allowed opacity-50 bg-gray-100 text-gray-600 border-gray-300'
+                                              }`}
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                if (groupCompleted) {
+                                                  setSelectedGroupForPayment(entry.groupNumber!)
+                                                  setIsPaymentModalOpen(true)
+                                                }
+                                              }}
+                                              title={groupCompleted 
+                                                ? `Group ${entry.groupNumber} - Click to manage payment`
+                                                : `Group ${entry.groupNumber} - Payment available after service completion`
+                                              }
+                                            >
+                                              G{entry.groupNumber}
+                                            </span>
+                                          )
+                                        })()}
                                       </div>
                                       <div className="text-[10px] text-orange-600">
                                         In Progress • Start: {entry.time}
+                                        {entry.extendedMinutes && entry.extendedMinutes > 0 && (
+                                          <span className="ml-1 text-purple-600">
+                                            • Extended: +{entry.extendedMinutes} min
+                                          </span>
+                                        )}
                                       </div>
-                                      <button
-                                        onClick={() => handleEndService(entry.id)}
-                                        className="mt-1 inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold bg-brand-blue-500 hover:bg-brand-blue-600 text-white rounded"
-                                      >
-                                        End Service
-                                      </button>
+                                      <div className="flex items-center gap-1 mt-1">
+                                        <button
+                                          onClick={() => setAddServiceModal({ open: true, entryId: entry.id })}
+                                          className="inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold bg-emerald-500 hover:bg-emerald-600 text-white rounded"
+                                          title="Add additional service"
+                                        >
+                                          <PlusCircle className="w-3 h-3 mr-0.5" />
+                                          Add Service
+                                        </button>
+                                        <button
+                                          onClick={() => handleOpenExtendService(entry.id)}
+                                          className="inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold bg-purple-500 hover:bg-purple-600 text-white rounded"
+                                          title="Extend service time"
+                                        >
+                                          <Clock className="w-3 h-3 mr-0.5" />
+                                          Extend
+                                        </button>
+                                        <button
+                                          onClick={() => handleEndService(entry.id)}
+                                          className="inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold bg-brand-blue-500 hover:bg-brand-blue-600 text-white rounded"
+                                        >
+                                          End Service
+                                        </button>
+                                      </div>
                                     </div>
                                   ))}
 
@@ -901,12 +1860,23 @@ export default function ManagerDailyMatrix() {
                     const servicesForTherapist = serviceNames.map((serviceName) => {
                       const serviceInfo = availableServices.find(s => s.name === serviceName)
                       const isCertified = serviceInfo && therapistInfo?.certifiedServices?.includes(serviceInfo.id)
-                      const cellContent = getCellContent(therapist, serviceName, round)
+                      const entriesForService = serviceEntries.filter((e: ServiceEntry) =>
+                        e.therapist === therapist &&
+                        e.round === round &&
+                        e.service.toLowerCase().includes(serviceName.toLowerCase())
+                      )
+                      const cellContent = entriesForService.length > 0
+                        ? entriesForService.map(e => {
+                            const price = e.price || e.service.match(/\d+/)?.[0] || ''
+                            return price ? `${serviceName} ${price}` : e.service
+                          }).join(', ')
+                        : '—'
                       return {
                         name: serviceName,
                         isCertified,
-                        hasEntry: cellContent !== '—',
+                        hasEntry: entriesForService.length > 0,
                         display: cellContent,
+                        entries: entriesForService,
                       }
                     })
 
@@ -952,9 +1922,16 @@ export default function ManagerDailyMatrix() {
                               const serviceName = entry.service.split(' ')[0] || 'Service'
                               return (
                                 <div key={entry.id} className="flex flex-col">
-                                  <span className="font-semibold text-gray-800">
-                                    {serviceName} {entry.price.toLocaleString()} THB
-                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-semibold text-gray-800">
+                                      {serviceName} {entry.price.toLocaleString()} THB
+                                    </span>
+                                    {entry.groupNumber && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-brand-blue-100 text-brand-blue-700 border border-brand-blue-300">
+                                        G{entry.groupNumber}
+                                      </span>
+                                    )}
+                                  </div>
                                   <span className="text-[10px] text-orange-700">
                                     In Progress • Start: {entry.time}
                                   </span>
@@ -977,8 +1954,23 @@ export default function ManagerDailyMatrix() {
                             >
                               <div className="font-semibold">{svc.name}</div>
                               {svc.isCertified ? (
-                                <div className="mt-1">
-                                  {svc.hasEntry ? svc.display : '—'}
+                                <div className="mt-1 space-y-1">
+                                  {svc.hasEntry ? (
+                                    svc.entries.map((entry: ServiceEntry) => (
+                                      <div key={entry.id} className="flex items-center gap-1">
+                                        <span className="text-[10px]">
+                                          {entry.price.toLocaleString()} THB
+                                        </span>
+                                        {entry.groupNumber && (
+                                          <span className="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold bg-brand-blue-100 text-brand-blue-700 border border-brand-blue-300">
+                                            G{entry.groupNumber}
+                                          </span>
+                                        )}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    '—'
+                                  )}
                                 </div>
                               ) : (
                                 <div className="mt-1">Not allowed</div>
@@ -1433,6 +2425,264 @@ export default function ManagerDailyMatrix() {
         </div>
       )}
 
+      {/* Payments Tab */}
+      {activeTab === 'payments' && (
+        <div className="p-4">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">
+              Payment Management
+            </h2>
+
+            {/* Payment Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              {(() => {
+                const groups = new Set(serviceEntries.filter(e => e.groupNumber).map(e => e.groupNumber))
+                const paidGroups = Array.from(groups).filter(g => getGroupPaymentStatus(g!) === 'paid').length
+                const partialGroups = Array.from(groups).filter(g => getGroupPaymentStatus(g!) === 'partial').length
+                const unpaidGroups = Array.from(groups).filter(g => getGroupPaymentStatus(g!) === 'unpaid').length
+                
+                return (
+                  <>
+                    <div className="bg-brand-green-50 border border-brand-green-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="w-5 h-5 text-brand-green-600" />
+                        <span className="text-sm font-semibold text-gray-700">{t('payment.paid')}</span>
+                      </div>
+                      <div className="text-2xl font-bold text-brand-green-700">
+                        {paidGroups}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1">{t('payment.groupsFullyPaid')}</div>
+                    </div>
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertCircle className="w-5 h-5 text-orange-600" />
+                        <span className="text-sm font-semibold text-gray-700">{t('payment.partial')}</span>
+                      </div>
+                      <div className="text-2xl font-bold text-orange-700">
+                        {partialGroups}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1">{t('payment.groupsPartiallyPaid')}</div>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertCircle className="w-5 h-5 text-red-600" />
+                        <span className="text-sm font-semibold text-gray-700">{t('payment.unpaid')}</span>
+                      </div>
+                      <div className="text-2xl font-bold text-red-700">
+                        {unpaidGroups}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1">{t('payment.groupsUnpaid')}</div>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+
+            {/* Outstanding Payments */}
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Outstanding Payments</h3>
+              {(() => {
+                const groups = new Set(serviceEntries.filter(e => e.groupNumber).map(e => e.groupNumber))
+                const outstandingGroups = Array.from(groups).filter(groupNum => {
+                  const entries = getGroupEntries(groupNum!)
+                  const isCompleted = isGroupCompleted(groupNum!)
+                  // Only show completed groups that are unpaid or partially paid
+                  return isCompleted && (entries[0]?.paymentStatus === 'unpaid' || entries[0]?.paymentStatus === 'partial' || !entries[0]?.paymentStatus)
+                })
+
+                if (outstandingGroups.length === 0) {
+                  return (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg">
+                      <CheckCircle className="w-12 h-12 text-brand-green-400 mx-auto mb-2" />
+                      <p className="text-gray-600">All payments collected!</p>
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {outstandingGroups.map(groupNum => {
+                      const entries = getGroupEntries(groupNum!)
+                      const total = entries.reduce((sum, e) => sum + e.price, 0)
+                      const paid = entries[0]?.paymentDetails?.reduce((sum, p) => sum + p.amount, 0) || 0
+                      const remaining = total - paid
+                      const status = entries[0]?.paymentStatus || 'unpaid'
+                      const isCompleted = isGroupCompleted(groupNum!)
+
+                      return (
+                        <div
+                          key={groupNum}
+                          className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${
+                                  status === 'paid' ? 'bg-brand-green-200 text-brand-green-800' :
+                                  status === 'partial' ? 'bg-orange-200 text-orange-800' :
+                                  'bg-red-200 text-red-800'
+                                }`}>
+                                  Group {groupNum}
+                                </span>
+                                <span className="text-sm text-gray-600">
+                                  {entries.length} service{entries.length > 1 ? 's' : ''}
+                                </span>
+                                {!isCompleted && (
+                                  <span className="text-xs text-orange-600 font-semibold">
+                                    (Services in progress)
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-700">
+                                {entries.map(e => e.service.split(' ')[0]).join(', ')}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-gray-900">{total.toLocaleString()} THB</div>
+                              {status === 'partial' && (
+                                <div className="text-sm text-orange-600">
+                                  Paid: {paid.toLocaleString()} THB
+                                </div>
+                              )}
+                              <div className="text-sm text-gray-600">
+                                Remaining: {remaining.toLocaleString()} THB
+                              </div>
+                              <button
+                                onClick={() => {
+                                  if (isCompleted) {
+                                    setSelectedGroupForPayment(groupNum!)
+                                    setIsPaymentModalOpen(true)
+                                  }
+                                }}
+                                disabled={!isCompleted}
+                                className={`mt-2 px-4 py-1.5 text-white text-sm font-semibold rounded-lg transition-colors ${
+                                  isCompleted
+                                    ? 'bg-brand-blue-500 hover:bg-brand-blue-600 cursor-pointer'
+                                    : 'bg-gray-300 cursor-not-allowed opacity-60'
+                                }`}
+                                title={isCompleted ? t('payment.collectPayment') : t('payment.completeServicesFirst')}
+                              >
+                                {isCompleted ? t('payment.collectPayment') : t('payment.completeServicesFirst')}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* All Groups Payment Status */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">All Groups</h3>
+              {(() => {
+                const groups = new Set(serviceEntries.filter(e => e.groupNumber).map(e => e.groupNumber))
+                const allGroups = Array.from(groups).sort((a, b) => (b || 0) - (a || 0))
+
+                if (allGroups.length === 0) {
+                  return (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg">
+                      <p className="text-gray-600">No group payments yet.</p>
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Group</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Services</th>
+                          <th className="px-4 py-3 text-right font-semibold text-gray-700">Total</th>
+                          <th className="px-4 py-3 text-right font-semibold text-gray-700">Paid</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-700">Method</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-700">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allGroups.map(groupNum => {
+                          const entries = getGroupEntries(groupNum!)
+                          const total = entries.reduce((sum, e) => sum + e.price, 0)
+                          // Calculate total paid across all services in group
+                          const paid = entries.reduce((sum, e) => {
+                            const servicePaid = e.paymentDetails?.reduce((pSum, p) => pSum + p.amount, 0) || 0
+                            return sum + servicePaid
+                          }, 0)
+                          const status = getGroupPaymentStatus(groupNum!)
+                          // Show payment method(s) - if all same, show one; if different, show "Mixed"
+                          const paymentMethods = entries.map(e => e.paymentType).filter(Boolean)
+                          const uniqueMethods = new Set(paymentMethods)
+                          const paymentMethod = uniqueMethods.size === 0 ? '—' :
+                                                uniqueMethods.size === 1 ? paymentMethods[0]! :
+                                                'Mixed'
+                          const isCompleted = isGroupCompleted(groupNum!)
+                          const activeServices = entries.filter(e => !e.endTime).length
+
+                          return (
+                            <tr key={groupNum} className="border-b border-gray-100 hover:bg-gray-50">
+                              <td className="px-4 py-3 font-semibold text-gray-900">G{groupNum}</td>
+                              <td className="px-4 py-3 text-gray-700">
+                                {entries.length}
+                                {!isCompleted && (
+                                  <span className="ml-2 text-xs text-orange-600">
+                                    ({activeServices} active)
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right font-semibold text-gray-900">{total.toLocaleString()} THB</td>
+                              <td className="px-4 py-3 text-right text-gray-700">{paid.toLocaleString()} THB</td>
+                              <td className="px-4 py-3">
+                                {!isCompleted ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-gray-100 text-gray-600">
+                                    In Progress
+                                  </span>
+                                ) : (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${
+                                    status === 'paid' ? 'bg-brand-green-100 text-brand-green-700' :
+                                    status === 'partial' ? 'bg-orange-100 text-orange-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>
+                                    {status === 'paid' ? 'Paid' : status === 'partial' ? 'Partial' : 'Unpaid'}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-gray-700">{isCompleted ? paymentMethod : '—'}</td>
+                              <td className="px-4 py-3 text-center">
+                                <button
+                                  onClick={() => {
+                                    if (isCompleted) {
+                                      setSelectedGroupForPayment(groupNum!)
+                                      setIsPaymentModalOpen(true)
+                                    }
+                                  }}
+                                  disabled={!isCompleted}
+                                  className={`px-3 py-1 text-xs font-semibold rounded transition-colors ${
+                                    isCompleted
+                                      ? 'bg-brand-blue-500 hover:bg-brand-blue-600 text-white cursor-pointer'
+                                      : 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-60'
+                                  }`}
+                                  title={isCompleted ? t('payment.manage') : t('payment.completeServicesFirst')}
+                                >
+                                  {isCompleted ? t('payment.manage') : t('payment.completeFirst')}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Side Menu */}
       {isMenuOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-20" onClick={() => setIsMenuOpen(false)}>
@@ -1495,6 +2745,189 @@ export default function ManagerDailyMatrix() {
           getNextTherapistForService={getNextTherapistForService}
           onClose={() => setIsModalOpen(false)}
           onSave={handleAddEntry}
+        />
+      )}
+
+      {/* Add Group Modal */}
+      {isGroupModalOpen && (
+        <AddGroupModal
+          therapists={therapists}
+          therapistsData={therapistsData}
+          availableServices={availableServices}
+          services={services}
+          getNextTherapistForService={getNextTherapistForService}
+          onClose={() => setIsGroupModalOpen(false)}
+          onSave={handleAddGroup}
+        />
+      )}
+
+      {/* Scheduled Booking Modal */}
+      {isScheduledBookingModalOpen && (
+        <ScheduledBookingModal
+          therapists={therapists}
+          therapistsData={therapistsData}
+          availableServices={availableServices}
+          services={services}
+          serviceEntries={serviceEntries}
+          getNextTherapistForService={getNextTherapistForService}
+          onClose={() => setIsScheduledBookingModalOpen(false)}
+          onSave={handleScheduledBooking}
+        />
+      )}
+
+      {/* Payment Collection Modal */}
+      {isPaymentModalOpen && selectedGroupForPayment !== null && (
+        <PaymentCollectionModal
+          groupEntries={getGroupEntries(selectedGroupForPayment)}
+          groupNumber={selectedGroupForPayment}
+          onClose={() => {
+            setIsPaymentModalOpen(false)
+            setSelectedGroupForPayment(null)
+          }}
+          onSave={handlePaymentCollection}
+        />
+      )}
+
+      {/* Extend Service Modal */}
+      {extendServiceModal.open && extendServiceModal.entryId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Extend Service Time</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Current duration: {extendServiceModal.currentMinutes} minutes
+                </p>
+              </div>
+              <button
+                onClick={() => setExtendServiceModal({ 
+                  open: false, 
+                  entryId: null, 
+                  currentMinutes: 0,
+                  originalPrice: 0,
+                  baseDuration: 60,
+                })}
+                className="text-gray-500 hover:text-gray-700 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Additional Minutes
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      id="extendMinutes"
+                      min="1"
+                      max="120"
+                      defaultValue="15"
+                      className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue-500"
+                      placeholder="Enter minutes"
+                      onChange={(e) => {
+                        const minutes = parseInt(e.target.value || '0', 10)
+                        const newDurationEl = document.getElementById('newDuration')
+                        if (newDurationEl) {
+                          const current = extendServiceModal.currentMinutes
+                          const newTotal = current + (minutes || 0)
+                          newDurationEl.textContent = `${newTotal} min`
+                        }
+                      }}
+                    />
+                    <span className="text-sm text-gray-600 whitespace-nowrap">minutes</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Quick select:
+                  </p>
+                  <div className="flex gap-2 mt-2">
+                    {[15, 30, 45, 60].map((minutes) => (
+                      <button
+                        key={minutes}
+                        onClick={() => {
+                          const input = document.getElementById('extendMinutes') as HTMLInputElement
+                          if (input) {
+                            input.value = minutes.toString()
+                            // Update the display
+                            const newDurationEl = document.getElementById('newDuration')
+                            if (newDurationEl) {
+                              const current = extendServiceModal.currentMinutes
+                              const newTotal = current + minutes
+                              newDurationEl.textContent = `${newTotal} min`
+                            }
+                          }
+                        }}
+                        className="px-3 py-1 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition-colors"
+                      >
+                        +{minutes}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="text-sm text-gray-600">
+                    <div className="flex justify-between mb-1">
+                      <span>Current:</span>
+                      <span className="font-semibold">{extendServiceModal.currentMinutes} min</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>After extension:</span>
+                      <span className="font-semibold text-brand-blue-600" id="newDuration">
+                        {extendServiceModal.currentMinutes + 15} min
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setExtendServiceModal({ 
+                  open: false, 
+                  entryId: null, 
+                  currentMinutes: 0,
+                  originalPrice: 0,
+                  baseDuration: 60,
+                })}
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const input = document.getElementById('extendMinutes') as HTMLInputElement
+                  const minutes = parseInt(input?.value || '0', 10)
+                  if (minutes > 0) {
+                    handleExtendService(minutes)
+                  }
+                }}
+                className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+              >
+                <Clock className="w-4 h-4" />
+                Extend Service
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Service Modal */}
+      {addServiceModal.open && addServiceModal.entryId && (
+        <AddEntryModal
+          therapists={therapists}
+          therapistsData={therapistsData}
+          availableServices={availableServices}
+          services={services}
+          getNextTherapistForService={getNextTherapistForService}
+          onClose={() => setAddServiceModal({ open: false, entryId: null })}
+          onSave={handleAddServiceToEntry}
+          prefillTherapist={(() => {
+            const existingEntry = serviceEntries.find(e => e.id === addServiceModal.entryId)
+            return existingEntry?.therapist || undefined
+          })()}
         />
       )}
     </div>

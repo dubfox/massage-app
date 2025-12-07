@@ -29,6 +29,7 @@ interface AddEntryModalProps {
   getNextTherapistForService?: (serviceId: string) => string | null
   onClose: () => void
   onSave: (entry: any) => void
+  prefillTherapist?: string // Optional therapist to prefill
 }
 
 export default function AddEntryModal({
@@ -39,6 +40,7 @@ export default function AddEntryModal({
   getNextTherapistForService,
   onClose,
   onSave,
+  prefillTherapist,
 }: AddEntryModalProps) {
   const { t } = useLanguage()
   const [timeSlot, setTimeSlot] = useState('auto')
@@ -70,7 +72,9 @@ export default function AddEntryModal({
   }
 
   const [therapist, setTherapist] = useState(() => {
-    // Initialize with next therapist for first service
+    // If prefillTherapist is provided, use it
+    if (prefillTherapist) return prefillTherapist
+    // Otherwise initialize with next therapist for first service
     const serviceId = getServiceId(services[0] || '')
     if (serviceId && getNextTherapistForService) {
       return getNextTherapistForService(serviceId) || therapists[0] || ''
@@ -80,6 +84,17 @@ export default function AddEntryModal({
 
   // Get therapists who can perform the selected service
   const availableTherapists = getTherapistsForService(getServiceId(service))
+  
+  // Check if prefillTherapist is certified for the selected service
+  const isPrefillTherapistCertified = prefillTherapist ? (() => {
+    const serviceId = getServiceId(service)
+    if (!serviceId) return false
+    const therapistInfo = therapistsData.find(t => t.name === prefillTherapist)
+    return therapistInfo?.certifiedServices?.includes(serviceId) || false
+  })() : false
+  
+  // Lock therapist if prefillTherapist is provided and certified for the service
+  const isTherapistLocked = prefillTherapist && isPrefillTherapistCertified
   const [addons, setAddons] = useState<Addon[]>([
     { name: 'Aroma', price: 100, selected: false },
     { name: 'Hot Oil', price: 150, selected: false },
@@ -115,6 +130,20 @@ export default function AddEntryModal({
   const handleServiceChange = (newService: string) => {
     setService(newService)
     setPrice(extractPrice(newService))
+    
+    // If prefillTherapist is provided and certified for the new service, keep them locked
+    if (prefillTherapist) {
+      const serviceId = getServiceId(newService)
+      if (serviceId) {
+        const therapistInfo = therapistsData.find(t => t.name === prefillTherapist)
+        const isCertified = therapistInfo?.certifiedServices?.includes(serviceId) || false
+        if (isCertified) {
+          // Keep the prefillTherapist - they're certified for this service
+          setTherapist(prefillTherapist)
+          return
+        }
+      }
+    }
     
     // When service changes, find the next therapist in queue who can perform this service
     if (timeSlot === 'auto' && getNextTherapistForService) {
@@ -216,9 +245,9 @@ export default function AddEntryModal({
             <select
               value={therapist}
               onChange={(e) => handleTherapistChange(e.target.value)}
-              disabled={timeSlot === 'auto' || availableTherapists.length === 0}
+              disabled={isTherapistLocked || timeSlot === 'auto' || availableTherapists.length === 0}
               className={`w-full px-4 py-3 text-base md:text-lg border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-brand-green-300 focus:border-brand-green-500 text-gray-900 ${
-                timeSlot === 'auto' || availableTherapists.length === 0 ? 'bg-gray-100 cursor-not-allowed' : ''
+                isTherapistLocked || timeSlot === 'auto' || availableTherapists.length === 0 ? 'bg-gray-100 cursor-not-allowed' : ''
               }`}
             >
               {availableTherapists.length > 0 ? (
@@ -231,7 +260,12 @@ export default function AddEntryModal({
                 <option value="">No therapists available for this service</option>
               )}
             </select>
-            {timeSlot === 'auto' && (
+            {isTherapistLocked && (
+              <p className="text-xs text-emerald-600 mt-1 font-semibold">
+                ✓ Therapist locked - {prefillTherapist} is certified for this service
+              </p>
+            )}
+            {timeSlot === 'auto' && !isTherapistLocked && (
               <p className="text-xs text-gray-600 mt-1">
                 Auto-assigned via round-robin based on service. Change Time Slot to "Pick Row" to manually select therapist.
               </p>
@@ -239,6 +273,11 @@ export default function AddEntryModal({
             {availableTherapists.length === 0 && (
               <p className="text-xs text-red-600 mt-1">
                 No therapists are certified for the selected service.
+              </p>
+            )}
+            {prefillTherapist && !isPrefillTherapistCertified && (
+              <p className="text-xs text-orange-600 mt-1">
+                ⚠ {prefillTherapist} is not certified for the selected service. Please select a different therapist.
               </p>
             )}
           </div>

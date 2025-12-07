@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Menu, Plus, X, Edit, Calendar, DollarSign, UserPlus, LogIn, LogOut } from 'lucide-react'
+import { Menu, Plus, X, Edit, Calendar, DollarSign, UserPlus, LogIn, LogOut, History } from 'lucide-react'
 import TherapistProfileModal from '@/components/TherapistProfileModal'
+import CheckoutModal from '@/components/CheckoutModal'
+import TherapistHistoryModal from '@/components/TherapistHistoryModal'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { useTherapistStatus } from '@/contexts/TherapistStatusContext'
 import LanguagePicker from '@/components/LanguagePicker'
@@ -47,13 +49,79 @@ export default function TherapistManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTherapist, setEditingTherapist] = useState<Therapist | null>(null)
   const [therapists, setTherapists] = useState<Therapist[]>(mockTherapists)
+  const [checkoutModal, setCheckoutModal] = useState<{ open: boolean; therapistName: string }>({
+    open: false,
+    therapistName: '',
+  })
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; therapistName: string }>({
+    open: false,
+    therapistName: '',
+  })
 
   const handleCheckIn = (therapistName: string) => {
+    // Store check-in record
+    const checkinRecord = {
+      therapistName,
+      timestamp: new Date().toISOString(),
+      comment: null,
+    }
+    
+    // Get existing check-in history
+    const existingHistory = JSON.parse(localStorage.getItem('therapistCheckinHistory') || '[]')
+    existingHistory.push(checkinRecord)
+    localStorage.setItem('therapistCheckinHistory', JSON.stringify(existingHistory))
+    
     loginTherapist(therapistName)
   }
 
   const handleCheckOut = (therapistName: string) => {
+    setCheckoutModal({ open: true, therapistName })
+  }
+
+  const handleConfirmCheckOut = (comment: string) => {
+    const therapistName = checkoutModal.therapistName
+    
+    if (!therapistName) {
+      console.error('No therapist name provided for checkout')
+      return
+    }
+    
+    // Store checkout record with comment
+    const checkoutRecord = {
+      therapistName,
+      timestamp: new Date().toISOString(),
+      comment: comment && comment.trim() ? comment.trim() : null,
+      type: 'checkout',
+    }
+    
+    try {
+      // Get existing checkout history
+      const stored = localStorage.getItem('therapistCheckoutHistory')
+      const existingHistory = stored ? JSON.parse(stored) : []
+      
+      // Ensure it's an array
+      if (!Array.isArray(existingHistory)) {
+        console.warn('Existing history was not an array, resetting')
+        localStorage.setItem('therapistCheckoutHistory', JSON.stringify([checkoutRecord]))
+      } else {
+        existingHistory.push(checkoutRecord)
+        localStorage.setItem('therapistCheckoutHistory', JSON.stringify(existingHistory))
+      }
+      
+      // Verify it was saved
+      const verify = localStorage.getItem('therapistCheckoutHistory')
+      if (!verify) {
+        console.error('Failed to save checkout history to localStorage')
+      }
+    } catch (error) {
+      console.error('Error saving checkout history:', error)
+    }
+    
+    // Log out the therapist
     logoutTherapist(therapistName)
+    
+    // Close modal
+    setCheckoutModal({ open: false, therapistName: '' })
   }
 
   const handleEdit = (therapist: Therapist) => {
@@ -198,6 +266,13 @@ export default function TherapistManagement() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2">
                         <button
+                          onClick={() => setHistoryModal({ open: true, therapistName: therapist.name })}
+                          className="p-2 hover:bg-gray-50 text-gray-600 rounded-lg transition-colors"
+                          title="View History"
+                        >
+                          <History className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => handleEdit(therapist)}
                           className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
                           title="Edit"
@@ -332,13 +407,20 @@ export default function TherapistManagement() {
                 {/* Actions */}
                 <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                   <button
-                    onClick={() => handleEdit(therapist)}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                    onClick={() => setHistoryModal({ open: true, therapistName: therapist.name })}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-700"
                   >
-                    <Edit className="w-3 h-3" />
-                    Edit
+                    <History className="w-3 h-3" />
+                    History
                   </button>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleEdit(therapist)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                    >
+                      <Edit className="w-3 h-3" />
+                      Edit
+                    </button>
                     <Link
                       href={`/manager/therapists/${therapist.id}/shifts`}
                       className="inline-flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-700"
@@ -422,6 +504,23 @@ export default function TherapistManagement() {
             setEditingTherapist(null)
           }}
           onSave={handleSave}
+        />
+      )}
+
+      {/* Checkout Modal */}
+      {checkoutModal.open && (
+        <CheckoutModal
+          therapistName={checkoutModal.therapistName}
+          onClose={() => setCheckoutModal({ open: false, therapistName: '' })}
+          onConfirm={handleConfirmCheckOut}
+        />
+      )}
+
+      {/* History Modal */}
+      {historyModal.open && (
+        <TherapistHistoryModal
+          therapistName={historyModal.therapistName}
+          onClose={() => setHistoryModal({ open: false, therapistName: '' })}
         />
       )}
     </div>

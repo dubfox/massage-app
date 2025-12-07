@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Users, Activity } from 'lucide-react'
+import { Users, Activity, TrendingUp } from 'lucide-react'
+import TherapistProgressionChart from '@/components/TherapistProgressionChart'
 
 interface ServiceEntry {
   id: string
@@ -12,6 +13,8 @@ interface ServiceEntry {
   endTime?: string
   column: number
   round: number
+  groupNumber?: number
+  paymentStatus?: 'paid' | 'unpaid' | 'partial'
 }
 
 // Available services with estimated durations (minutes)
@@ -260,10 +263,12 @@ export default function ServiceDisplayBoard() {
                   <tr className="text-white/70 border-b border-white/10">
                     <th className="py-2 text-left font-semibold">Therapist</th>
                     <th className="py-2 text-left font-semibold">Service</th>
+                    <th className="py-2 text-left font-semibold">Round</th>
                     <th className="py-2 text-left font-semibold">Start Time</th>
                     <th className="py-2 text-left font-semibold">
                       Expected End Time
                     </th>
+                    <th className="py-2 text-left font-semibold">Group</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -278,9 +283,23 @@ export default function ServiceDisplayBoard() {
                           {entry.therapist}
                         </td>
                         <td className="py-2 pr-4">{serviceName}</td>
+                        <td className="py-2 pr-4">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-400/40">
+                            R{entry.round}
+                          </span>
+                        </td>
                         <td className="py-2 pr-4">{entry.time}</td>
                         <td className="py-2 pr-4">
                           {getExpectedEndTime(entry)}
+                        </td>
+                        <td className="py-2 pr-4">
+                          {entry.groupNumber ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-400/40">
+                              G{entry.groupNumber}
+                            </span>
+                          ) : (
+                            <span className="text-white/30">—</span>
+                          )}
                         </td>
                       </tr>
                     )
@@ -394,6 +413,47 @@ export default function ServiceDisplayBoard() {
           )}
         </section>
       </div>
+
+      {/* Therapist Progression Charts */}
+      <section className="px-6 pb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-full bg-purple-500/20">
+            <TrendingUp className="w-6 h-6 text-purple-300" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-white">Therapist Progression</h2>
+            <p className="text-sm text-white/60">
+              Historical performance by round
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {therapistsData.map((therapist) => {
+            const hasServices = serviceEntries.some(e => e.therapist === therapist.name)
+            if (!hasServices) return null
+
+            return (
+              <TherapistProgressionChart
+                key={therapist.name}
+                serviceEntries={serviceEntries}
+                therapistName={therapist.name}
+              />
+            )
+          })}
+        </div>
+
+        {therapistsData.every(t => !serviceEntries.some(e => e.therapist === t.name)) && (
+          <div className="bg-white/5 backdrop-blur-md rounded-xl border border-white/10 p-8 text-center">
+            <p className="text-white/60 text-lg">
+              No therapist progression data available yet
+            </p>
+            <p className="text-white/40 text-sm mt-2">
+              Charts will appear as services are assigned and completed
+            </p>
+          </div>
+        )}
+      </section>
 
       {/* Footer */}
       <footer className="px-8 py-3 border-t border-white/10 text-xs text-white/50 flex justify-between">
